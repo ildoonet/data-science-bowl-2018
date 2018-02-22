@@ -48,3 +48,7 @@ def data_to_segment_input(data):
     :return: image(h, w, 1), mask(h, w, 1), masks(h, w, m)
     """
     return data[0].image(is_gray=True), data[0].single_mask(), data[0].multi_masks_batch()
+
+
+def data_to_normalize01(data):
+    return data.astype(np.float32) / 255

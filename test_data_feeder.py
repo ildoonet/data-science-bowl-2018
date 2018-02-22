@@ -3,6 +3,7 @@ import unittest
 import time
 import numpy as np
 from tensorpack.dataflow.common import TestDataSpeed
+
 from data_feeder import CellImageData, get_default_dataflow, master_dir_train, get_default_dataflow_batch
 
 
@@ -87,6 +88,8 @@ class DataFeederTest(unittest.TestCase):
                 list(multi_masks.shape),
                 [16, 224, 224, 1]
             )
+            self.assertLessEqual(np.max(input_batch), 1.0)
+            self.assertGreaterEqual(np.max(input_batch), 0.0)
             if idx > 10:
                 break
 

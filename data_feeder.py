@@ -7,7 +7,7 @@ from tensorpack.dataflow.common import BatchData, MapData, MapDataComponent
 from tensorpack.dataflow.base import RNGDataFlow
 from tensorpack.dataflow import PrefetchData
 
-from data_augmentation import random_crop_224, data_to_segment_input
+from data_augmentation import random_crop_224, data_to_segment_input, data_to_normalize01
 
 master_dir_train = '/data/public/rw/datasets/dsb2018/train'
 master_dir_test = '/data/public/rw/datasets/dsb2018/test'
@@ -118,6 +118,7 @@ def get_default_dataflow_batch(batchsize=32):
     ds = get_default_dataflow()
     ds = MapData(ds, data_to_segment_input)
     ds = BatchData(ds, batchsize)
+    ds = MapDataComponent(ds, data_to_normalize01)
     ds = PrefetchData(ds, 10, 2)
 
     return ds
