@@ -23,8 +23,15 @@ class CellImageData:
         img_path = os.path.join(target_dir, 'images', target_id + '.png')
 
         self.img = cv2.imread(img_path, cv2.IMREAD_COLOR)
+        self.img_h, self.img_w = self.img.shape[:2]
+        assert self.img_h > 0 and self.img_w > 0
         self.masks = []
-        for mask_file in next(os.walk(os.path.join(target_dir, 'masks')))[2]:
+        mask_dir = os.path.join(target_dir, 'masks')
+
+        if not os.path.exists(mask_dir):
+            return
+
+        for mask_file in next(os.walk(mask_dir))[2]:
             mask_path = os.path.join(target_dir, 'masks', mask_file)
             mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
             mask = mask >> 7    # faster than mask // 129
@@ -51,10 +58,13 @@ class CellImageData:
         return m
 
     @staticmethod
-    def batch_to_multi_masks(multi_masks_batch):
+    def batch_to_multi_masks(multi_masks_batch, transpose=True):
         a = np.array([multi_masks_batch == (idx + 1) for idx in range(np.max(multi_masks_batch))], dtype=np.uint8)
 
-        return a[..., 0].transpose([1, 2, 0])
+        if transpose:
+            return a[..., 0].transpose([1, 2, 0])
+        else:
+            return a[..., 0]
 
     def image(self, is_gray=True):
         """
@@ -88,7 +98,7 @@ class CellImageDataManagerTrain(CellImageDataManager):
     def __init__(self):
         super().__init__(
             master_dir_train,
-            list(next(os.walk(master_dir_train))[1])[:550],
+            list(next(os.walk(master_dir_train))[1])[:576],
             True
         )
         # TODO : train/valid set k folds implementation
@@ -96,14 +106,20 @@ class CellImageDataManagerTrain(CellImageDataManager):
 
 class CellImageDataManagerValid(CellImageDataManager):
     def __init__(self):
-        super().__init__(master_dir_train,
-                         list(next(os.walk(master_dir_train))[1])[550:],
-                         True)
+        super().__init__(
+            master_dir_train,
+            list(next(os.walk(master_dir_train))[1])[576:],
+            False
+        )
 
 
 class CellImageDataManagerTest(CellImageDataManager):
     def __init__(self):
-        super().__init__(master_dir_test, next(os.walk(master_dir_test))[1], False)
+        super().__init__(
+            master_dir_test,
+            list(next(os.walk(master_dir_test))[1]),
+            False
+        )
 
 
 def get_default_dataflow():

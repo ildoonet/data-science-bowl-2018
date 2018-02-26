@@ -1,1 +1,4 @@
+pandas
 fire
+slidingwindow
+scikit-image

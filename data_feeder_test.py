@@ -2,12 +2,19 @@ import unittest
 
 import time
 import numpy as np
-from tensorpack.dataflow.common import TestDataSpeed
+from tensorpack.dataflow.common import TestDataSpeed, MapDataComponent, MapData
 
-from data_feeder import CellImageData, get_default_dataflow, master_dir_train, get_default_dataflow_batch
+from data_augmentation import data_to_image
+from data_feeder import CellImageData, get_default_dataflow, master_dir_train, get_default_dataflow_batch, \
+    CellImageDataManagerTest, master_dir_test
 
 
 class DataFeederTest(unittest.TestCase):
+    def test_image_data_testset(self):
+        d = CellImageData('0114f484a16c152baa2d82fdd43740880a762c93f436c8988ac461c5c9dbe7d5', path=master_dir_test)
+        self.assertGreater(d.img_w, 0)
+        self.assertGreater(d.img_h, 0)
+
     def test_image_data(self):
         # 256, 320, 3, mask=15
         t = time.time()
@@ -98,4 +105,26 @@ class DataFeederTest(unittest.TestCase):
         dt = time.time() - t
         self.assertLessEqual(dt, 10.0)
 
+    def test_feeder(self):
+        ds = CellImageDataManagerTest()
+        idx = 0
+        for idx, dp in enumerate(ds.get_data()):
+            if idx > 10:
+                break
+        self.assertGreater(idx, 0)
 
+        t = time.time()
+        TestDataSpeed(ds, size=100).start()
+        dt = time.time() - t
+        self.assertLessEqual(dt, 1.0)
+
+    def test_with_id(self):
+        ds_test = CellImageDataManagerTest()
+        ds_test = MapData(ds_test, data_to_image)
+
+        for idx, dp in enumerate(ds_test.get_data()):
+            self.assertTrue(isinstance(dp[1][0], str))
+            self.assertGreater(dp[2][0], 0)
+            self.assertGreater(dp[2][1], 0)
+            if idx > 10:
+                break
