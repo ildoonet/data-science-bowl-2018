@@ -1,5 +1,10 @@
 # Data Science Bawl 2018
 
+## Run
+    # example
+    CUDA_VISIBLE_DEVICES=0 python train.py run --model=basic
+
+
 ## Architectures
 
 ### Segmentation

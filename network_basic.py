@@ -8,10 +8,8 @@ from data_feeder import CellImageDataManagerTrain, CellImageDataManagerValid, Ce
 from network import Network
 
 from tensorpack.dataflow.common import BatchData, MapData, MapDataComponent
-from tensorpack.dataflow.base import RNGDataFlow
-from tensorpack.dataflow import PrefetchData
-
-slim = tf.contrib.slim
+from tensorpack.dataflow.parallel import PrefetchData
+from tensorflow.contrib import slim
 
 
 class NetworkBasic(Network):
@@ -44,7 +42,7 @@ class NetworkBasic(Network):
         net = self.input_batch
         features = []
         for i in range(3):
-            net = slim.convolution(net, int(32*(2**i)), [3, 3], 1, padding='SAME',
+            net = slim.convolution(net, int(32 * (2 ** i)), [3, 3], 1, padding='SAME',
                                    scope='conv%d' % (i + 1),
                                    weights_initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.01),
                                    normalizer_fn=slim.batch_norm,
@@ -72,7 +70,7 @@ class NetworkBasic(Network):
                                normalizer_params=batch_norm_params,
                                activation_fn=tf.nn.relu6)
 
-        net = slim.convolution(net, 1, [3, 3], 1, padding='SAME',   # TODO : Tuning 3x3?
+        net = slim.convolution(net, 1, [3, 3], 1, padding='SAME',  # TODO : Tuning 3x3?
                                scope='conv_last',
                                weights_initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.01),
                                normalizer_fn=None,
