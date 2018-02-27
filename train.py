@@ -12,6 +12,7 @@ from data_feeder import CellImageData
 from data_queue import DataFlowToQueue
 from network import Network
 from network_basic import NetworkBasic
+from network_unet import NetworkUnet
 from submission import KaggleSubmission, get_multiple_metric
 
 logger = logging.getLogger('train')
@@ -28,6 +29,8 @@ class Trainer:
             tag='', show_train=0, show_valid=0, show_test=0):
         if model == 'basic':
             network = NetworkBasic(batchsize)
+        elif model == 'simple_unet':
+            network = NetworkUnet(batchsize)
         else:
             raise Exception('model name(%s) is not valid' % model)
 
