@@ -1,6 +1,8 @@
 import unittest
+import numpy as np
 
-from data_augmentation import resize_shortedge, random_crop, center_crop, resize_shortedge_if_small
+from data_augmentation import resize_shortedge, random_crop, center_crop, resize_shortedge_if_small, \
+    flip_lr
 from data_feeder import CellImageData, master_dir_train
 
 
@@ -15,6 +17,16 @@ class TestAugmentation(unittest.TestCase):
             d.image(is_gray=False).shape[0],
             224
         )
+
+    def test_aug_flip_lr(self):
+        points = np.where(self.d.masks[0] > 0.8)
+        flipped = flip_lr(self.d)
+
+        for y, x in zip(*points):
+            for val1, val2 in zip(self.d.img[y, x], flipped.img[y, -x-1]):
+                self.assertAlmostEqual(float(val1), float(val2), delta=2)
+            val1, val2 = self.d.masks[0][y, x], flipped.masks[0][y, -x - 1]
+            self.assertAlmostEqual(float(val1), float(val2), delta=2)
 
     def test_random_crop(self):
         d = random_crop(self.d, 224, 224)

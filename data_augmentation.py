@@ -3,6 +3,20 @@ import cv2
 import numpy as np
 
 
+def random_flip_lr(data):
+    s = random.randint(0, 1)
+    if s == 0:
+        return data
+    return flip_lr(data)
+
+
+def flip_lr(data):
+    # flip horizontally
+    data.img = cv2.flip(data.img, 0)
+    data.masks = [cv2.flip(mask, 0) for mask in data.masks]
+    return data
+
+
 def resize_shortedge_if_small_224(data):
     return resize_shortedge_if_small(data, 224)
 

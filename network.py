@@ -14,6 +14,7 @@ class Network:
     def visualize(image, label, segments):
         """
         For Visualization
+        TODO
         """
         if image.dtype != np.uint8:
             image = (image * 255).astype(np.uint8)

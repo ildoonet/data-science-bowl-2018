@@ -3,7 +3,7 @@ import numpy as np
 from tensorflow.python.ops.image_ops_impl import ResizeMethod
 
 from data_augmentation import random_crop_224, data_to_segment_input, data_to_normalize01, center_crop_224, \
-    data_to_image, resize_shortedge_if_small_224
+    data_to_image, resize_shortedge_if_small_224, random_flip_lr
 from data_feeder import CellImageDataManagerTrain, CellImageDataManagerValid, CellImageDataManagerTest
 from network import Network
 
@@ -73,13 +73,13 @@ class NetworkBasic(Network):
                                activation_fn=tf.nn.relu6)
 
         net = slim.convolution(net, int(128), [1, 1], 1, padding='SAME',
-                               scope='bottlenec2',
+                               scope='bottleneck2',
                                weights_initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.01),
                                normalizer_fn=slim.batch_norm,
                                normalizer_params=batch_norm_params,
                                activation_fn=tf.nn.relu6)
 
-        net = slim.convolution(net, 1, [3, 3], 1, padding='SAME',
+        net = slim.convolution(net, 1, [3, 3], 1, padding='SAME',   # TODO : Tuning 3x3?
                                scope='conv_last',
                                weights_initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.01),
                                normalizer_fn=None,
@@ -94,6 +94,7 @@ class NetworkBasic(Network):
         ds_train = CellImageDataManagerTrain()
         # TODO : Augmentation?
         ds_train = MapDataComponent(ds_train, random_crop_224)
+        ds_train = MapDataComponent(ds_train, random_flip_lr)
         ds_train = PrefetchData(ds_train, 1000, 12)
         ds_train = MapData(ds_train, data_to_segment_input)
         ds_train = BatchData(ds_train, self.batchsize)
