@@ -53,6 +53,7 @@ class NetworkUnet(NetworkBasic):
 
             net = NetworkUnet.double_conv(net, 32, scope='output_conv_1')
         net = slim.convolution(net, 1, [3, 3], 1, scope='final_conv',
+                               activation_fn=None,
                                padding='SAME', weights_initializer= tf.truncated_normal_initializer(mean=0.0, stddev=0.01))
 
         self.logit = net
