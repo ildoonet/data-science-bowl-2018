@@ -25,7 +25,7 @@ logger.addHandler(ch)
 
 class Trainer:
     def run(self, model, epoch=30, batchsize=32, learning_rate=0.01, valid_interval=1,
-            tag='', show_train=0, show_valid=0, show_test=5):
+            tag='', show_train=0, show_valid=0, show_test=0):
         if model == 'basic':
             network = NetworkBasic(batchsize)
         else:

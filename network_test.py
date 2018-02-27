@@ -36,7 +36,7 @@ class TestNetwork(unittest.TestCase):
             [0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
             [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         ], dtype=np.uint8)
-        instances = Network.parse_merged_output(merged_output)
+        instances = Network.parse_merged_output(merged_output, use_separator=False)
         self.assertEqual(len(instances), 5)
 
         merged_output = np.array([
@@ -50,7 +50,7 @@ class TestNetwork(unittest.TestCase):
             [0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
             [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         ], dtype=np.uint8)
-        instances = Network.parse_merged_output(merged_output)
+        instances = Network.parse_merged_output(merged_output, use_separator=False)
         self.assertEqual(len(instances), 3)
 
     def test_resize_instances(self):
@@ -67,7 +67,7 @@ class TestNetwork(unittest.TestCase):
             [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         ], dtype=np.uint8)
         merged_output = merged_output[..., np.newaxis]
-        instances = Network.parse_merged_output(merged_output)
+        instances = Network.parse_merged_output(merged_output, use_separator=False)
         resized = Network.resize_instances(instances, (20, 30))
         self.assertEqual(len(resized), 5)
         self.assertEqual(resized[0].shape[0], 20)

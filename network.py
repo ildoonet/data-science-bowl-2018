@@ -7,6 +7,7 @@ import slidingwindow as sw
 from skimage.morphology import label
 
 from colors import get_colors
+from separator import separation
 
 
 class Network:
@@ -52,9 +53,9 @@ class Network:
         canvas = np.zeros((img_h, img_w, 3), dtype=np.uint8)
         for idx, seg in enumerate(segments):
             r, g, b = get_colors(idx)
-            canvas[:, :, 0] = canvas[:, :, 0] + b * seg[:, :, 0]
-            canvas[:, :, 1] = canvas[:, :, 1] + g * seg[:, :, 0]
-            canvas[:, :, 2] = canvas[:, :, 2] + r * seg[:, :, 0]
+            canvas[:, :, 0] = canvas[:, :, 0] + b * seg[:, :]
+            canvas[:, :, 1] = canvas[:, :, 1] + g * seg[:, :]
+            canvas[:, :, 2] = canvas[:, :, 2] + r * seg[:, :]
         return canvas
 
     @staticmethod
@@ -67,7 +68,7 @@ class Network:
         return cascades, windows
 
     @staticmethod
-    def parse_merged_output(output, cutoff=0.5):
+    def parse_merged_output(output, cutoff=0.5, use_separator=True):
         """
         Split 1-channel merged output for instance segmentation
         :param cutoff:
@@ -75,6 +76,16 @@ class Network:
         :return: list of (h, w, 1). instance-aware segmentations.
         """
         # TODO : Sharpening?
+        if use_separator:
+            # Ref: https://www.kaggle.com/bostjanm/overlapping-objects-separation-method/notebook
+            labels = label(output > cutoff, connectivity=1)
+            reconstructed_mask = np.zeros(output.shape, dtype=np.bool)
+            for i in range(1, labels.max() + 1):
+                # separate objects
+                img_ = separation(labels == i)
+                # copy to reconstructed mask
+                reconstructed_mask = reconstructed_mask + img_
+            output = reconstructed_mask
         lab_img = label(output > cutoff, connectivity=1)
         instances = []
         for i in range(1, lab_img.max() + 1):
@@ -91,7 +102,7 @@ class Network:
             instance = cv2.resize(instance, (w, h))
             instance = instance >> 7
             instance = instance[..., np.newaxis]
-            assert len(shp) == len(instance.shape)
+            assert len(shp[:2]) == len(instance.shape[:2])
             return instance
 
         instances = [resize_instance(instance) for instance in instances]

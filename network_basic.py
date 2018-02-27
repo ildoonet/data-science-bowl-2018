@@ -62,18 +62,11 @@ class NetworkBasic(Network):
         features.append(net)
 
         # upsample
-        features_up = [tf.image.resize_bilinear(f, (224, 224)) for f in features]
+        features_up = [tf.image.resize_bilinear(f, (112, 112)) for f in features]
         net = tf.concat(axis=3, values=features_up, name='concat_features')
 
         net = slim.convolution(net, int(256), [1, 1], 1, padding='SAME',
                                scope='bottleneck',
-                               weights_initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.01),
-                               normalizer_fn=slim.batch_norm,
-                               normalizer_params=batch_norm_params,
-                               activation_fn=tf.nn.relu6)
-
-        net = slim.convolution(net, int(128), [1, 1], 1, padding='SAME',
-                               scope='bottleneck2',
                                weights_initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.01),
                                normalizer_fn=slim.batch_norm,
                                normalizer_params=batch_norm_params,
@@ -84,6 +77,7 @@ class NetworkBasic(Network):
                                weights_initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.01),
                                normalizer_fn=None,
                                activation_fn=None)
+        net = tf.image.resize_bilinear(net, (224, 224))
 
         self.logit = net
         self.output = tf.nn.sigmoid(net, 'visualization')
@@ -103,11 +97,10 @@ class NetworkBasic(Network):
 
         ds_valid = CellImageDataManagerValid()
         ds_valid = MapDataComponent(ds_valid, center_crop_224)
-        ds_valid = PrefetchData(ds_valid, 1000, 12)
         ds_valid = MapData(ds_valid, data_to_segment_input)
         ds_valid = BatchData(ds_valid, self.batchsize)
         ds_valid = MapDataComponent(ds_valid, data_to_normalize01)
-        ds_valid = PrefetchData(ds_valid, 10, 2)
+        ds_valid = PrefetchData(ds_valid, 20, 8)
 
         ds_valid2 = CellImageDataManagerValid()
         ds_valid2 = MapDataComponent(ds_valid2, resize_shortedge_if_small_224)
@@ -146,6 +139,7 @@ class NetworkBasic(Network):
         merged_output = np.zeros((image.shape[0], image.shape[1], 1), dtype=np.float32)
         for window, output in zip(windows, outputs):
             merged_output[window.indices()] = np.maximum(output, merged_output[window.indices()])
+        merged_output = merged_output.reshape((image.shape[0], image.shape[1]))
 
         # sementation to instance-aware segmentations.
         instances = Network.parse_merged_output(merged_output, cutoff=0.8)
