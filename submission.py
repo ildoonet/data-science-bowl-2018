@@ -49,7 +49,7 @@ class KaggleSubmission:
         for instance in instances:
             rles, cnt = rle_encoding(instance)
 
-            if cnt < 5:
+            if cnt < 3:
                 continue
             assert len(rles) % 2 == 0
 

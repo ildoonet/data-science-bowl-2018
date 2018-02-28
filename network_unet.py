@@ -18,7 +18,7 @@ class NetworkUnet(NetworkBasic):
         batch_norm_params = {
             'is_training': self.is_training,
             'center': True,
-            'scale': False,
+            'scale': True,
             'decay': 0.9,
             'epsilon': 0.001,
             'fused': True,
@@ -27,10 +27,10 @@ class NetworkUnet(NetworkBasic):
 
         conv_args = {
             'padding': 'SAME',
-            'weights_initializer': tf.truncated_normal_initializer(mean=0.0, stddev=0.001),
+            'weights_initializer': tf.truncated_normal_initializer(mean=0.0, stddev=0.01),
             'normalizer_fn': slim.batch_norm,
             'normalizer_params': batch_norm_params,
-            'activation_fn': tf.nn.relu6
+            'activation_fn': tf.nn.elu
         }
 
         net = self.input_batch
@@ -47,14 +47,14 @@ class NetworkUnet(NetworkBasic):
             # upsampling steps
             for i in range(4):
                 net = slim.conv2d_transpose(net, int(256/(2**i)), [3, 3], 2, scope='up_trans_conv_%d' % (i + 1))
-                down_feat = features.pop() # upsample with origin version
+                down_feat = features.pop()  # upsample with origin version
                 net = tf.concat([down_feat, net], axis=-1)
                 net = NetworkUnet.double_conv(net, int(256/(2**i)), scope='up_conv_%d' % (i + 1))
 
             net = NetworkUnet.double_conv(net, 32, scope='output_conv_1')
         net = slim.convolution(net, 1, [3, 3], 1, scope='final_conv',
                                activation_fn=None,
-                               padding='SAME', weights_initializer= tf.truncated_normal_initializer(mean=0.0, stddev=0.01))
+                               padding='SAME', weights_initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.01))
 
         self.logit = net
         self.output = tf.nn.sigmoid(net, 'visualization')

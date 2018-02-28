@@ -7,13 +7,20 @@ def random_flip_lr(data):
     s = random.randint(0, 1)
     if s == 0:
         return data
-    return flip_lr(data)
+    return flip(data, orientation=0)
 
 
-def flip_lr(data):
+def random_flip_ud(data):
+    s = random.randint(0, 1)
+    if s == 0:
+        return data
+    return flip(data, orientation=1)
+
+
+def flip(data, orientation=0):
     # flip horizontally
-    data.img = cv2.flip(data.img, 0)
-    data.masks = [cv2.flip(mask, 0) for mask in data.masks]
+    data.img = cv2.flip(data.img, orientation)
+    data.masks = [cv2.flip(mask, orientation) for mask in data.masks]
     return data
 
 
@@ -85,6 +92,17 @@ def crop(data, x, y, w, h):
     img_h2, img_w2 = data.img.shape[:2]
     assert img_h2 == h and img_w2 == w, 'w=%d->%d, h=%d->%d, target=(%d, %d)' % (img_w, img_w2, img_h, img_h2, w, h)
 
+    return data
+
+
+def random_scaling(data):
+    img_h, img_w = data.img.shape[:2]
+    new_w = int(random.uniform(0.8, 1.2) * img_w)
+    new_h = int(random.uniform(0.8, 1.2) * img_h)
+
+    data.img = cv2.resize(data.img, (new_w, new_h))
+    data.masks = [cv2.resize(mask, (new_w, new_h)) for mask in data.masks]
+    data.img_w, data.img_h = new_w, new_h
     return data
 
 

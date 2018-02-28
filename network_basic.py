@@ -3,7 +3,7 @@ import numpy as np
 from tensorflow.python.ops.image_ops_impl import ResizeMethod
 
 from data_augmentation import random_crop_224, data_to_segment_input, data_to_normalize01, center_crop_224, \
-    data_to_image, resize_shortedge_if_small_224, random_flip_lr
+    data_to_image, resize_shortedge_if_small_224, random_flip_lr, random_flip_ud, random_scaling
 from data_feeder import CellImageDataManagerTrain, CellImageDataManagerValid, CellImageDataManagerTest
 from network import Network
 
@@ -85,8 +85,11 @@ class NetworkBasic(Network):
     def get_input_flow(self):
         ds_train = CellImageDataManagerTrain()
         # TODO : Augmentation?
+        ds_train = MapDataComponent(ds_train, random_scaling)
+        ds_train = MapDataComponent(ds_train, resize_shortedge_if_small_224)
         ds_train = MapDataComponent(ds_train, random_crop_224)
         ds_train = MapDataComponent(ds_train, random_flip_lr)
+        ds_train = MapDataComponent(ds_train, random_flip_ud)
         ds_train = PrefetchData(ds_train, 1000, 12)
         ds_train = MapData(ds_train, data_to_segment_input)
         ds_train = BatchData(ds_train, self.batchsize)
@@ -126,7 +129,7 @@ class NetworkBasic(Network):
         return self.loss
 
     def inference(self, tf_sess, image):
-        cascades, windows = Network.sliding_window(image, 224, 0.2)
+        cascades, windows = Network.sliding_window(image, 224, 0.5)
 
         outputs = tf_sess.run(self.get_output(), feed_dict={
             self.input_batch: cascades,
@@ -140,6 +143,6 @@ class NetworkBasic(Network):
         merged_output = merged_output.reshape((image.shape[0], image.shape[1]))
 
         # sementation to instance-aware segmentations.
-        instances = Network.parse_merged_output(merged_output, cutoff=0.8)
+        instances = Network.parse_merged_output(merged_output, cutoff=0.5, use_separator=False)
 
         return instances

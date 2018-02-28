@@ -2,7 +2,7 @@ import unittest
 import numpy as np
 
 from data_augmentation import resize_shortedge, random_crop, center_crop, resize_shortedge_if_small, \
-    flip_lr
+    flip
 from data_feeder import CellImageData, master_dir_train
 
 
@@ -20,7 +20,7 @@ class TestAugmentation(unittest.TestCase):
 
     def test_aug_flip_lr(self):
         points = np.where(self.d.masks[0] > 0.8)
-        flipped = flip_lr(self.d)
+        flipped = flip(self.d)
 
         for y, x in zip(*points):
             for val1, val2 in zip(self.d.img[y, x], flipped.img[y, -x-1]):
