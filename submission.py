@@ -75,10 +75,10 @@ def get_iou(a, b):
     a = a.astype(np.bool_)
     b = b.astype(np.bool_)
 
-    intersection = np.sum(np.logical_and(a, b))
+    intersection = np.sum(np.logical_and(a, b), dtype=np.float32)
     if intersection == 0:
         return 0.0
-    union = np.sum(np.logical_or(a, b))
+    union = np.sum(np.logical_or(a, b), dtype=np.float32)
     if union == 0:
         return 0.0
     iou = intersection / union
@@ -135,13 +135,7 @@ def get_multiple_metric(thr_list, instances, label_trues):
     :param label_trues:  list of (h, w) numpy array
     :return:
     """
-    cnt_tps = np.array((len(thr_list)), dtype=np.int32)
-    cnt_fps = np.array((len(thr_list)), dtype=np.int32)
-    cnt_fns = np.array((len(thr_list)), dtype=np.int32)
     t = time.time()
     cnt_tp, cnt_fp, cnt_fn = get_metric(instances, label_trues, thr_list)
-    cnt_tps = cnt_tps + cnt_tp
-    cnt_fps = cnt_fps + cnt_fp
-    cnt_fns = cnt_fns + cnt_fn
     # print('thr_miou', time.time() - t)
-    return cnt_tps, cnt_fps, cnt_fns
+    return cnt_tp, cnt_fp, cnt_fn
