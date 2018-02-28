@@ -25,7 +25,7 @@ def rle_encoding(x):
 
 
 class KaggleSubmission:
-    BASEPATH = '/data/private/kaggle-science-bowl-2018/submissions'
+    BASEPATH = os.path.dirname(__file__)+"/submissions"
 
     def __init__(self, name):
         self.name = name

@@ -13,6 +13,7 @@ from data_queue import DataFlowToQueue
 from network import Network
 from network_basic import NetworkBasic
 from network_unet import NetworkUnet
+from network_fusionnet import NetworkFusionNet
 from submission import KaggleSubmission, get_multiple_metric
 
 logger = logging.getLogger('train')
@@ -31,6 +32,8 @@ class Trainer:
             network = NetworkBasic(batchsize)
         elif model == 'simple_unet':
             network = NetworkUnet(batchsize)
+        elif model == 'simple_fusion':
+            network = NetworkFusionNet(batchsize)
         else:
             raise Exception('model name(%s) is not valid' % model)
 
