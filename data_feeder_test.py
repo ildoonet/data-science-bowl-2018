@@ -1,12 +1,14 @@
 import unittest
 
 import time
+
+import cv2
 import numpy as np
 from tensorpack.dataflow.common import TestDataSpeed, MapDataComponent, MapData
 
-from data_augmentation import data_to_image
+from data_augmentation import data_to_image, random_affine
 from data_feeder import CellImageData, get_default_dataflow, master_dir_train, get_default_dataflow_batch, \
-    CellImageDataManagerTest, master_dir_test
+    CellImageDataManagerTest, master_dir_test, CellImageDataManagerTrain
 
 
 class DataFeederTest(unittest.TestCase):

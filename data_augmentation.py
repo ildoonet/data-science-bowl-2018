@@ -1,6 +1,7 @@
 import random
 import cv2
 import numpy as np
+from imgaug import augmenters as iaa
 
 
 def random_flip_lr(data):
@@ -96,6 +97,9 @@ def crop(data, x, y, w, h):
 
 
 def random_scaling(data):
+    s = random.randint(0, 1)
+    if s == 0:
+        return data
     img_h, img_w = data.img.shape[:2]
     new_w = int(random.uniform(0.8, 1.2) * img_w)
     new_h = int(random.uniform(0.8, 1.2) * img_h)
@@ -103,6 +107,52 @@ def random_scaling(data):
     data.img = cv2.resize(data.img, (new_w, new_h))
     data.masks = [cv2.resize(mask, (new_w, new_h)) for mask in data.masks]
     data.img_w, data.img_h = new_w, new_h
+    return data
+
+
+def random_affine(data):
+    s = random.randint(0, 1)
+    if s == 0:
+        return data
+    rand_rotate = np.random.randint(-45, 45)
+    rand_shear = np.random.randint(-10, 10)
+    rand_translate = np.random.uniform(-0.1, 0.1)
+
+    aug = iaa.Affine(scale=1.0, translate_percent=rand_translate, rotate=rand_rotate, shear=rand_shear, cval=0, mode='reflect')
+    data.img = aug.augment_image(data.img)
+    data.masks = [aug.augment_image(mask) for mask in data.masks]
+    return data
+
+
+def random_color(data):
+    """
+    reference : https://github.com/neptune-ml/data-science-bowl-2018/blob/master/augmentation.py
+    """
+    s = random.randint(0, 1)
+    if s == 0:
+        return data
+    aug = iaa.Sequential([
+        # Color
+        iaa.OneOf([
+            iaa.Sequential([
+                iaa.ChangeColorspace(from_colorspace="RGB", to_colorspace="HSV"),
+                iaa.WithChannels(0, iaa.Add((0, 100))),
+                iaa.ChangeColorspace(from_colorspace="HSV", to_colorspace="RGB")]),
+            iaa.Sequential([
+                iaa.ChangeColorspace(from_colorspace="RGB", to_colorspace="HSV"),
+                iaa.WithChannels(1, iaa.Add((0, 100))),
+                iaa.ChangeColorspace(from_colorspace="HSV", to_colorspace="RGB")]),
+            iaa.Sequential([
+                iaa.ChangeColorspace(from_colorspace="RGB", to_colorspace="HSV"),
+                iaa.WithChannels(2, iaa.Add((0, 100))),
+                iaa.ChangeColorspace(from_colorspace="HSV", to_colorspace="RGB")]),
+            iaa.WithChannels(0, iaa.Add((0, 100))),
+            iaa.WithChannels(1, iaa.Add((0, 100))),
+            iaa.WithChannels(2, iaa.Add((0, 100)))
+        ])
+    ], random_order=True)
+    data.img = aug.augment_image(data.img)
+    # data.masks = [aug.augment_image(mask) for mask in data.masks]
     return data
 
 
@@ -117,6 +167,22 @@ def data_to_segment_input(data):
 def data_to_image(data):
     return [
         data[0].image(is_gray=True),
+        np.array([data[0].target_id], dtype=np.object),
+        np.array([data[0].img_h, data[0].img_w], dtype=np.int32)
+    ]
+
+
+def data_to_segment_input_color(data):
+    """
+    :param data: CellImageData
+    :return: image(h, w, 1), mask(h, w, 1), masks(h, w, m)
+    """
+    return [data[0].image(is_gray=False), data[0].single_mask(), data[0].multi_masks_batch()]
+
+
+def data_to_image_color(data):
+    return [
+        data[0].image(is_gray=False),
         np.array([data[0].target_id], dtype=np.object),
         np.array([data[0].img_h, data[0].img_w], dtype=np.int32)
     ]

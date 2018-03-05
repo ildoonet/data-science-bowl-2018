@@ -12,13 +12,18 @@ from separator import separation
 
 class Network:
     @staticmethod
-    def visualize(image, label, segments):
+    def visualize(image, label, segments, norm='norm01'):
         """
         For Visualization
         TODO
         """
         if image.dtype != np.uint8:
-            image = (image * 255).astype(np.uint8)
+            if norm == 'norm01':
+                image = (image * 255).astype(np.uint8)
+            elif norm == 'norm1':
+                image = ((image + 1.0) * 128).astype(np.uint8)
+            else:
+                raise
 
         if image.shape[-1] == 1:
             image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
@@ -154,6 +159,7 @@ class Network:
                                                    decay_steps=300, decay_rate=0.33, staircase=True)
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         with tf.control_dependencies(update_ops):
+            # optimizer = tf.train.RMSPropOptimizer(learning_rate, decay=0.9, momentum=0.0)
             optimizer = tf.train.AdamOptimizer(learning_rate, epsilon=1e-8)
             optimize_op = optimizer.minimize(self.get_loss(), global_step, colocate_gradients_with_ops=True)
         return learning_rate, optimize_op

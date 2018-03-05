@@ -9,6 +9,11 @@ class TestNetwork(unittest.TestCase):
         pass
 
     def test_sliding_window(self):
+        img = np.zeros((100, 100, 3), dtype=np.uint8)
+        cascades, _ = Network.sliding_window(img, 80, 0.0)
+        self.assertEqual(len(cascades), 4)
+        self.assertListEqual(list(cascades[0].shape), [80, 80, 3])
+
         img = np.zeros((300, 300, 3), dtype=np.uint8)
         cascades, _ = Network.sliding_window(img, 100, 0.0)
         self.assertEqual(len(cascades), 9)

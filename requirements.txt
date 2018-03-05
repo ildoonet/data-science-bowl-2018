@@ -1,5 +1,7 @@
+imgaug
 pandas
 fire
 slidingwindow
 scikit-image
 tensorpack
+tqdm

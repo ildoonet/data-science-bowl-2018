@@ -6,12 +6,14 @@ import datetime
 import fire
 import numpy as np
 import tensorflow as tf
+from tqdm import tqdm
 
 from checkmate.checkmate import BestCheckpointSaver, get_best_checkpoint
 from data_feeder import CellImageData
 from data_queue import DataFlowToQueue
 from network import Network
 from network_basic import NetworkBasic
+from network_basicnopool import NetworkBasicNoPool
 from network_unet import NetworkUnet
 from network_fusionnet import NetworkFusionNet
 from submission import KaggleSubmission, get_multiple_metric
@@ -30,6 +32,8 @@ class Trainer:
             tag='', show_train=0, show_valid=0, show_test=0):
         if model == 'basic':
             network = NetworkBasic(batchsize)
+        elif model == 'basic_nopool':
+            network = NetworkBasicNoPool(batchsize)
         elif model == 'simple_unet':
             network = NetworkUnet(batchsize)
         elif model == 'simple_fusion':
@@ -55,7 +59,7 @@ class Trainer:
 
         best_loss_val = 999999
         best_miou_val = 0.0
-        name = '%s_%s_lr=%.3f_epoch=%d_bs=%d' % (
+        name = '%s_%s_lr=%.4f_epoch=%d_bs=%d' % (
             tag if tag else datetime.datetime.now().strftime("%y%m%dT%H%M"),
             model,
             learning_rate,
@@ -85,33 +89,34 @@ class Trainer:
                         }
                     )
 
-                logger.info('training %d epoch %d step, lr=%.6f loss=%.4f' % (e, step, lr, loss_val))
+                logger.info('training %d epoch %d step, lr=%.8f loss=%.4f' % (e+1, step, lr, loss_val))
 
                 if (e + 1) % valid_interval == 0:
                     avg = []
                     metrics = []
-                    for dp_valid in ds_valid.get_data():
-                        loss_val = sess.run(
-                            net_loss,
-                            feed_dict={
-                                ph_image: dp_valid[0],
-                                ph_mask: dp_valid[1],
-                                is_training: False
-                            }
-                        )
-                        avg.append(loss_val)
+                    for _ in range(5):
+                        for dp_valid in ds_valid.get_data():
+                            loss_val = sess.run(
+                                net_loss,
+                                feed_dict={
+                                    ph_image: dp_valid[0],
+                                    ph_mask: dp_valid[1],
+                                    is_training: False
+                                }
+                            )
+                            avg.append(loss_val)
 
                     avg = sum(avg) / len(avg)
                     logger.info('validation loss=%.4f' % (avg))
                     if best_loss_val > avg:
                         best_loss_val = avg
 
-                if (e + 1) % 5 == 0:
+                if e > 10 and (e + 1) % 5 == 0:
                     thr_list = np.arange(0.5, 1.0, 0.05)
                     cnt_tps = np.array((len(thr_list)), dtype=np.int32),
                     cnt_fps = np.array((len(thr_list)), dtype=np.int32)
                     cnt_fns = np.array((len(thr_list)), dtype=np.int32)
-                    for idx, dp_valid in enumerate(ds_valid_full.get_data()):
+                    for idx, dp_valid in tqdm(enumerate(ds_valid_full.get_data()), 'validate using the iou metric'):
                         image = dp_valid[0]
                         label = CellImageData.batch_to_multi_masks(dp_valid[2], transpose=False)
                         instances = network.inference(sess, image)
@@ -121,13 +126,10 @@ class Trainer:
                         cnt_fps = cnt_fps + cnt_fp
                         cnt_fns = cnt_fns + cnt_fn
 
-                        if idx < show_valid:
-                            cv2.imshow('valid', Network.visualize(image, dp_valid[2], instances))
-                            cv2.waitKey(0)
                     ious = np.divide(cnt_tps, cnt_tps + cnt_fps + cnt_fns)
                     mIou = np.mean(ious)
                     logger.info('validation metric: %.5f' % mIou)
-                    if best_miou_val > mIou:
+                    if best_miou_val < mIou:
                         best_miou_val = mIou
                     best_ckpt_saver.handle(mIou, sess, global_step)  # save & keep best model
 
@@ -147,26 +149,14 @@ class Trainer:
 
             # show sample in valid set : show_valid > 0
             logging.info('Start to test on validation set.... (may take a while)')
-            thr_list = np.arange(0.5, 1.0, 0.05)
-            cnt_tps = np.array((len(thr_list)), dtype=np.int32),
-            cnt_fps = np.array((len(thr_list)), dtype=np.int32)
-            cnt_fns = np.array((len(thr_list)), dtype=np.int32)
             for idx, dp_valid in enumerate(ds_valid_full.get_data()):
+                if idx >= show_valid:
+                    break
                 image = dp_valid[0]
-                label = CellImageData.batch_to_multi_masks(dp_valid[2], transpose=False)
                 instances = network.inference(sess, image)
 
-                cnt_tp, cnt_fp, cnt_fn = get_multiple_metric(thr_list, instances, label)
-                cnt_tps = cnt_tps + cnt_tp
-                cnt_fps = cnt_fps + cnt_fp
-                cnt_fns = cnt_fns + cnt_fn
-
-                if idx < show_valid:
-                    cv2.imshow('valid', Network.visualize(image, dp_valid[2], instances))
-                    cv2.waitKey(0)
-            ious = np.divide(cnt_tps, cnt_tps + cnt_fps + cnt_fns)
-            mIou = np.mean(ious)
-            logger.info('validation metric: %.5f' % mIou)
+                cv2.imshow('valid', Network.visualize(image, dp_valid[2], instances))
+                cv2.waitKey(0)
 
             # show sample in test set
             kaggle_submit = KaggleSubmission(name)
