@@ -5,7 +5,7 @@ from network_basic import NetworkBasic
 
 class NetworkFusionNet(NetworkBasic):
     def __init__(self, batchsize):
-        super(NetworkFusionNet, self).__init__(batchsize=batchsize)
+        super(NetworkFusionNet, self).__init__(batchsize=batchsize, unet_weight=False)
 
     # ResBlock
     @staticmethod

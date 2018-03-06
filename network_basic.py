@@ -1,10 +1,10 @@
 import tensorflow as tf
 import numpy as np
-from tensorflow.python.ops.image_ops_impl import ResizeMethod
+from tensorflow.python.ops.losses.losses_impl import Reduction
 
-from data_augmentation import random_crop_224, data_to_segment_input, data_to_normalize01, center_crop_224, \
+from data_augmentation import random_crop_224, data_to_segment_input, center_crop_224, \
     data_to_image, resize_shortedge_if_small_224, random_flip_lr, random_flip_ud, random_scaling, random_affine, \
-    random_color, data_to_normalize1, data_to_segment_input_color, data_to_image_color
+    random_color, data_to_normalize1
 from data_feeder import CellImageDataManagerTrain, CellImageDataManagerValid, CellImageDataManagerTest
 from network import Network
 
@@ -14,7 +14,7 @@ from tensorflow.contrib import slim
 
 
 class NetworkBasic(Network):
-    def __init__(self, batchsize):
+    def __init__(self, batchsize, unet_weight):
         super().__init__()
 
         self.batchsize = batchsize
@@ -24,10 +24,12 @@ class NetworkBasic(Network):
         else:
             self.input_batch = tf.placeholder(tf.float32, shape=(None, 224, 224, 1), name='image')
         self.mask_batch = tf.placeholder(tf.float32, shape=(None, 224, 224, 1), name='mask')
+        self.weight_batch = tf.placeholder(tf.float32, shape=(None, 224, 224, 1), name='weight')
         self.unused = None
         self.logit = None
         self.output = None
         self.loss = None
+        self.unet_weight = unet_weight
 
     def get_placeholders(self):
         return self.input_batch, self.mask_batch, self.unused
@@ -100,7 +102,7 @@ class NetworkBasic(Network):
                                normalizer_params=batch_norm_params,
                                activation_fn=activation)
 
-        net = slim.convolution(net, 1, [1, 1], 1, padding='SAME',
+        net = slim.convolution(net, 1, [5, 5], 1, padding='SAME',
                                scope='conv_last',
                                weights_initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.01),
                                normalizer_fn=None,
@@ -109,11 +111,21 @@ class NetworkBasic(Network):
 
         self.logit = net
         self.output = tf.nn.sigmoid(net, 'visualization')
-        self.loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=self.mask_batch, logits=self.logit))
+        if self.unet_weight:
+            w = self.weight_batch
+        else:
+            w = 1.0
+
+        self.loss = tf.losses.sigmoid_cross_entropy(
+            multi_class_labels=self.mask_batch,
+            logits=self.logit,
+            weights=w,
+            reduction=Reduction.SUM_BY_NONZERO_WEIGHTS
+        )
         return net
 
     def get_input_flow(self):
-        ds_train = CellImageDataManagerTrain()
+        ds_train = CellImageDataManagerTrain(erosion_mask=self.unet_weight)
         # Augmentation :
         ds_train = MapDataComponent(ds_train, random_affine)
         ds_train = MapDataComponent(ds_train, random_color)
@@ -122,42 +134,40 @@ class NetworkBasic(Network):
         ds_train = MapDataComponent(ds_train, random_crop_224)
         ds_train = MapDataComponent(ds_train, random_flip_lr)
         ds_train = MapDataComponent(ds_train, random_flip_ud)
-        ds_train = PrefetchData(ds_train, 1000, 12)
-        if self.is_color:
-            ds_train = MapData(ds_train, data_to_segment_input_color)
-        else:
-            ds_train = MapData(ds_train, data_to_segment_input)
+        ds_train = PrefetchData(ds_train, 1000, 24)
+        ds_train = MapData(ds_train, lambda x: data_to_segment_input(x, not self.is_color, self.unet_weight))
         ds_train = BatchData(ds_train, self.batchsize)
         ds_train = MapDataComponent(ds_train, data_to_normalize1)
         ds_train = PrefetchData(ds_train, 10, 2)
 
-        ds_valid = CellImageDataManagerValid()
+        ds_valid = CellImageDataManagerValid(erosion_mask=self.unet_weight)
         ds_valid = MapDataComponent(ds_valid, center_crop_224)
-        if self.is_color:
-            ds_valid = MapData(ds_valid, data_to_segment_input_color)
-        else:
-            ds_valid = MapData(ds_valid, data_to_segment_input)
+        ds_valid = MapData(ds_valid, lambda x: data_to_segment_input(x, not self.is_color, self.unet_weight))
         ds_valid = BatchData(ds_valid, self.batchsize, remainder=True)
         ds_valid = MapDataComponent(ds_valid, data_to_normalize1)
-        ds_valid = PrefetchData(ds_valid, 20, 8)
+        ds_valid = PrefetchData(ds_valid, 20, 24)
 
         ds_valid2 = CellImageDataManagerValid()
         ds_valid2 = MapDataComponent(ds_valid2, resize_shortedge_if_small_224)
-        if self.is_color:
-            ds_valid2 = MapData(ds_valid2, data_to_segment_input_color)
-        else:
-            ds_valid2 = MapData(ds_valid2, data_to_segment_input)
+        ds_valid2 = MapData(ds_valid2, lambda x: data_to_segment_input(x, not self.is_color))
         ds_valid2 = MapDataComponent(ds_valid2, data_to_normalize1)
 
         ds_test = CellImageDataManagerTest()
         ds_test = MapDataComponent(ds_test, resize_shortedge_if_small_224)
-        if self.is_color:
-            ds_test = MapData(ds_test, data_to_image_color)
-        else:
-            ds_test = MapData(ds_test, data_to_image)
+        ds_test = MapData(ds_test, lambda x: data_to_image(x, not self.is_color))
         ds_test = MapDataComponent(ds_test, data_to_normalize1)
 
         return ds_train, ds_valid, ds_valid2, ds_test
+
+    def get_feeddict(self, dp, is_training):
+        feed_dict = {
+            self.input_batch: dp[0],
+            self.mask_batch: dp[1],
+            self.is_training: is_training
+        }
+        if self.unet_weight:
+            feed_dict[self.weight_batch] = dp[3]
+        return feed_dict
 
     def get_logit(self):
         if self.logit is None:
@@ -187,6 +197,9 @@ class NetworkBasic(Network):
         merged_output = merged_output.reshape((image.shape[0], image.shape[1]))
 
         # sementation to instance-aware segmentations.
-        instances = Network.parse_merged_output(merged_output, cutoff=0.5, use_separator=True)
+        instances = Network.parse_merged_output(
+            merged_output, cutoff=0.5, use_separator=False,
+            use_dilation=self.unet_weight
+        )
 
         return instances

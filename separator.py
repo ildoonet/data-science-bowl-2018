@@ -26,6 +26,8 @@ def extendLineToMask(y1, x1, y2, x2, mask):
         # use skimage line for better slope calculation
         rrP1, ccP1 = skimage.draw.line(int(y1), int(x1), int(y2), int(x2))
         m = ((ccP1 * rrP1).mean() - ccP1.mean() * rrP1.mean()) / ((ccP1 ** 2).mean() - (ccP1.mean()) ** 2)
+        if m <= 0.0:
+            return 0, 0, 0, 0
         # calculate b
         b = y1 - (m * x1)
 
@@ -189,7 +191,7 @@ def separation(img):
     img_ = inputimg_[cropy:cropy2, cropx:cropx2]
 
     # define minimal convex area
-    MIN_CONVEX_AREA = 5
+    MIN_CONVEX_AREA = 5     # TODO : optimal paramter?
 
     # calculate convex hull of object
     convexhull = convex_hull_image(img_)

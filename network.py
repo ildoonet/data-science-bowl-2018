@@ -4,15 +4,17 @@ import cv2
 import numpy as np
 import tensorflow as tf
 import slidingwindow as sw
+from scipy import ndimage
 from skimage.morphology import label
 
 from colors import get_colors
+from data_feeder import CellImageData
 from separator import separation
 
 
 class Network:
     @staticmethod
-    def visualize(image, label, segments, norm='norm01'):
+    def visualize(image, label, segments, weights, norm='norm01'):
         """
         For Visualization
         TODO
@@ -25,22 +27,34 @@ class Network:
             else:
                 raise
 
+        columns = 1 + sum([1 for x in [label, segments, weights] if x is not None])
+        colcnt = 0
+
         if image.shape[-1] == 1:
             image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
 
         img_h, img_w = image.shape[:2]
-        if label is not None:
-            canvas = np.zeros((img_h, img_w * 3, 3), dtype=np.uint8)
-        else:
-            canvas = np.zeros((img_h, img_w * 2, 3), dtype=np.uint8)
+        canvas = np.zeros((img_h, img_w * columns, 3), dtype=np.uint8)
         canvas[:, 0:img_w, :] = image
-        canvas[:, img_w*1:img_w*2, :] = Network.visualize_segments(segments, image)
+        colcnt += 1
+
+        if segments is not None:
+            canvas[:, img_w * colcnt:img_w * (colcnt + 1), :] = Network.visualize_segments(segments, image)
+            colcnt += 1
 
         if label is not None:
-            canvas[:, img_w*2:img_w*3, :] = Network.visualize_segments(label, image)
+            if not isinstance(label, list):
+                label = CellImageData.batch_to_multi_masks(label, transpose=False)
+                label = list(label)
+            canvas[:, img_w * colcnt:img_w * (colcnt + 1), :] = Network.visualize_segments(label, image)
+            colcnt += 1
 
-        cv2.line(canvas, (img_w, 0), (img_w, img_h), (128, 128, 128), 1)
-        cv2.line(canvas, (img_w*2, 0), (img_w*2, img_h), (128, 128, 128), 1)
+        if weights is not None:
+            canvas[:, img_w * colcnt:img_w * (colcnt + 1), :] = weights / 10. * 255
+            colcnt += 1
+
+        for n in range(colcnt):
+            cv2.line(canvas, (img_w * (n + 1), 0), (img_w * (n + 1), img_h), (128, 128, 128), 1)
 
         return canvas
 
@@ -73,7 +87,7 @@ class Network:
         return cascades, windows
 
     @staticmethod
-    def parse_merged_output(output, cutoff=0.5, use_separator=True):
+    def parse_merged_output(output, cutoff=0.5, use_separator=True, use_dilation=False):
         """
         Split 1-channel merged output for instance segmentation
         :param cutoff:
@@ -92,6 +106,9 @@ class Network:
                 reconstructed_mask = reconstructed_mask + img_
             output = reconstructed_mask
         lab_img = label(output > cutoff, connectivity=1)
+        if use_dilation:
+            for i in range(1, lab_img.max() + 1):
+                lab_img = np.maximum(lab_img, ndimage.morphology.binary_dilation(lab_img == i, iterations=2) * i)
         instances = []
         for i in range(1, lab_img.max() + 1):
             instances.append(lab_img == i)
@@ -111,7 +128,16 @@ class Network:
             return instance
 
         instances = [resize_instance(instance) for instance in instances]
-        return instances
+
+        # make sure that there are no overlappings
+        lab_img = np.zeros((h, w, 1), dtype=np.int32)
+        for i, instance in enumerate(instances):
+            lab_img = np.maximum(lab_img, instance * (i+1))
+        new_instances = []
+        for i in range(1, lab_img.max() + 1):
+            new_instances.append(lab_img == i)
+
+        return new_instances
 
     def __init__(self):
         self.is_training = tf.placeholder(tf.bool, name='is_training')
@@ -122,6 +148,10 @@ class Network:
 
     @abc.abstractmethod
     def get_placeholders(self):
+        pass
+
+    @abc.abstractmethod
+    def get_feeddict(self, dp, is_training):
         pass
 
     @abc.abstractmethod

@@ -3,6 +3,7 @@ import random
 import numpy as np
 import os
 import cv2
+from scipy import ndimage
 from tensorpack.dataflow.common import BatchData, MapData, MapDataComponent
 from tensorpack.dataflow.base import RNGDataFlow
 from tensorpack.dataflow import PrefetchData
@@ -14,7 +15,7 @@ master_dir_test = '/data/public/rw/datasets/dsb2018/test'
 
 
 class CellImageData:
-    def __init__(self, target_id, path):
+    def __init__(self, target_id, path, erosion_mask=False):
         self.target_id = target_id
 
         # read
@@ -35,14 +36,19 @@ class CellImageData:
             mask_path = os.path.join(target_dir, 'masks', mask_file)
             mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
             mask = mask >> 7    # faster than mask // 129
+            if erosion_mask:
+                mask = ndimage.morphology.binary_erosion((mask > 0), border_value=1).astype(np.uint8)
             self.masks.append(mask)
 
-    def single_mask(self):
+    def single_mask(self, ch1=True):
         """
         :return: (h, w, 1) numpy
         """
         multi_masks = self.multi_masks()
-        return np.sum(multi_masks, axis=2)[..., np.newaxis]
+        multi_masks = np.sum(multi_masks, axis=2)
+        if ch1:
+            multi_masks = multi_masks[..., np.newaxis]
+        return multi_masks
 
     def multi_masks(self):
         """
@@ -76,12 +82,32 @@ class CellImageData:
             img = img[..., np.newaxis]
         return img
 
+    def unet_weights(self):
+        # ref : https://www.kaggle.com/piotrczapla/tensorflow-u-net-starter-lb-0-34/notebook
+        w0 = 10
+        sigma = 5
+
+        merged_mask = self.single_mask(ch1=False)
+
+        distances = np.array([ndimage.distance_transform_edt(m == 0) for m in self.masks])
+        shortest_dist = np.sort(distances, axis=0)
+
+        # distance to the border of the nearest cell
+        d1 = shortest_dist[0]
+        # distance to the border of the second nearest cell
+        d2 = shortest_dist[1] if len(shortest_dist) > 1 else np.zeros(d1.shape)
+
+        weight = w0 * np.exp(-(d1 + d2) ** 2 / (2 * sigma ** 2)).astype(np.float32)
+        weight = 1 + (merged_mask == 0) * weight
+        return weight[..., np.newaxis]
+
 
 class CellImageDataManager(RNGDataFlow):
-    def __init__(self, path, idx_list, is_shuffle=False):
+    def __init__(self, path, idx_list, is_shuffle=False, erosion_mask=False):
         self.path = path
         self.idx_list = idx_list
         self.is_shuffle = is_shuffle
+        self.erosion_mask = erosion_mask
 
     def size(self):
         return len(self.idx_list)
@@ -91,25 +117,27 @@ class CellImageDataManager(RNGDataFlow):
             random.shuffle(self.idx_list)
 
         for idx in self.idx_list:
-            yield [CellImageData(idx, self.path)]
+            yield [CellImageData(idx, self.path, erosion_mask=self.erosion_mask)]
 
 
 class CellImageDataManagerTrain(CellImageDataManager):
-    def __init__(self):
+    def __init__(self, erosion_mask=False):
         super().__init__(
             master_dir_train,
             list(next(os.walk(master_dir_train))[1])[:576],
-            True
+            True,
+            erosion_mask
         )
         # TODO : train/valid set k folds implementation
 
 
 class CellImageDataManagerValid(CellImageDataManager):
-    def __init__(self):
+    def __init__(self, erosion_mask=False):
         super().__init__(
             master_dir_train,
             list(next(os.walk(master_dir_train))[1])[576:],
-            False
+            False,
+            erosion_mask
         )
 
 

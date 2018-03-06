@@ -68,6 +68,19 @@ class DataFeederTest(unittest.TestCase):
         )
         self.assertEqual(np.max(d.multi_masks()), 1)
 
+    def test_image_train2(self):
+        # test erosion & unet-weight
+        d = CellImageData('00ae65c1c6631ae6f2be1a449902976e6eb8483bf6b0740d00530220832c6d3e', path=master_dir_train,
+                          erosion_mask=True)
+        self.assertGreater(d.img_w, 0)
+        self.assertGreater(d.img_h, 0)
+
+        # TODO
+
+        # cv2.imshow('mask', d.single_mask() * 1.)
+        # cv2.imshow('a', d.unet_weights() / 10.)
+        # cv2.waitKey(0)
+
     def test_default_ds(self):
         ds = get_default_dataflow()
 

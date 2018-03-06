@@ -156,36 +156,30 @@ def random_color(data):
     return data
 
 
-def data_to_segment_input(data):
+def data_to_segment_input(data, is_gray=True, unet_weight=False):
     """
     :param data: CellImageData
     :return: image(h, w, 1), mask(h, w, 1), masks(h, w, m)
     """
-    return [data[0].image(is_gray=True), data[0].single_mask(), data[0].multi_masks_batch()]
-
-
-def data_to_image(data):
-    return [
-        data[0].image(is_gray=True),
-        np.array([data[0].target_id], dtype=np.object),
-        np.array([data[0].img_h, data[0].img_w], dtype=np.int32)
+    vals = [
+        data[0].image(is_gray=is_gray),
+        data[0].single_mask(),
+        data[0].multi_masks_batch()
     ]
+    if unet_weight:
+        vals.append(data[0].unet_weights())
+    return vals
 
 
-def data_to_segment_input_color(data):
-    """
-    :param data: CellImageData
-    :return: image(h, w, 1), mask(h, w, 1), masks(h, w, m)
-    """
-    return [data[0].image(is_gray=False), data[0].single_mask(), data[0].multi_masks_batch()]
-
-
-def data_to_image_color(data):
-    return [
-        data[0].image(is_gray=False),
+def data_to_image(data, is_gray=True, unet_weight=False):
+    vals = [
+        data[0].image(is_gray=is_gray),
         np.array([data[0].target_id], dtype=np.object),
-        np.array([data[0].img_h, data[0].img_w], dtype=np.int32)
+        np.array([data[0].img_h, data[0].img_w], dtype=np.int32),
     ]
+    if unet_weight:
+        vals.append(data[0].unet_weights())
+    return vals
 
 
 def data_to_normalize01(data):
