@@ -2,6 +2,7 @@ import random
 import cv2
 import numpy as np
 from imgaug import augmenters as iaa
+from scipy.ndimage import gaussian_filter, map_coordinates
 
 
 def random_flip_lr(data):
@@ -189,3 +190,54 @@ def data_to_normalize01(data):
 
 def data_to_normalize1(data):
     return data.astype(np.float32) / 128 - 1.0
+
+
+def data_to_elastic_transform_wrapper(data):
+    i, ms = data_to_elastic_transform(data, data.img.shape[1] * 2, data.img.shape[1] * 0.08, data.img.shape[1] * 0.08)
+    data.img = i
+    data.masks = ms
+    return data
+
+
+# Function to distort image using elastic transformation technique
+def data_to_elastic_transform(data, alpha, sigma, alpha_affine, random_state=None):
+    """Elastic deformation of images as described in [Simard2003]_ (with modifications).
+    .. [Simard2003] Simard, Steinkraus and Platt, "Best Practices for
+         Convolutional Neural Networks applied to Visual Document Analysis", in
+         Proc. of the International Conference on Document Analysis and
+         Recognition, 2003.
+
+     Based on https://gist.github.com/erniejunior/601cdf56d2b424757de5
+    """
+    if random_state is None:
+        random_state = np.random.RandomState(None)
+
+    shape = data.img.shape
+    shape_size = shape[:2]
+
+    # Define random affine matrix
+    center_square = np.float32(shape_size) // 2
+    square_size = min(shape_size) // 3
+    pts1 = np.float32([center_square + square_size, [center_square[0] + square_size, center_square[1] - square_size],
+                       center_square - square_size])
+    pts2 = pts1 + random_state.uniform(-alpha_affine, alpha_affine, size=pts1.shape).astype(np.float32)
+    M = cv2.getAffineTransform(pts1, pts2)
+
+    # Apply M to image
+    image = cv2.warpAffine(data.img, M, shape_size[::-1], borderMode=cv2.BORDER_REFLECT_101)
+    masks = [cv2.warpAffine(mask, M, shape_size[::-1], borderMode=cv2.BORDER_REFLECT_101) for mask in data.masks]
+
+    dx = gaussian_filter((random_state.rand(*shape) * 2 - 1), sigma) * alpha
+    dy = gaussian_filter((random_state.rand(*shape) * 2 - 1), sigma) * alpha
+    dz = np.zeros_like(dx)
+
+    x, y, z = np.meshgrid(np.arange(shape[1]), np.arange(shape[0]), np.arange(shape[2]))
+    indices = np.reshape(y + dy, (-1, 1)), np.reshape(x + dx, (-1, 1)), np.reshape(z, (-1, 1))
+
+    masks = [np.expand_dims(mask, axis=-1) for mask in masks]
+
+    image = map_coordinates(image, indices, order=1, mode='reflect').reshape(shape)
+    masks = [map_coordinates(mask, indices, order=1, mode='reflect').reshape(shape) for mask in masks]
+    masks = [mask[:,:,0] for mask in masks]
+
+    return image, masks

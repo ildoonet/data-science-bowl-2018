@@ -1,8 +1,10 @@
 import unittest
+
+import cv2
 import numpy as np
 
 from data_augmentation import resize_shortedge, random_crop, center_crop, resize_shortedge_if_small, \
-    flip
+    flip, data_to_elastic_transform
 from data_feeder import CellImageData, master_dir_train
 
 
@@ -53,3 +55,19 @@ class TestAugmentation(unittest.TestCase):
         d = resize_shortedge(self.d, 120)   # generate a small image
         d = resize_shortedge_if_small(d, 224)
         self.assertEqual(d.image(is_gray=False).shape[0], 224)
+
+    def test_elastic_transformation(self):
+        image, masks = data_to_elastic_transform(self.d, self.d.img.shape[1] * 2, self.d.img.shape[1] * 0.08, self.d.img.shape[1] \
+                                      * 0.08)
+
+        self.assertEqual(self.d.img.shape[0], image.shape[0])
+        self.assertEqual(self.d.masks[0].shape[0], masks[0].shape[0])
+
+        # for visual inspection
+        # cv2.imshow('before-elastic-tran-img', self.d.img)
+        # cv2.imshow('before-elastic-tran-mask', self.d.masks[0] * 255)
+        #
+        # cv2.imshow('after-elastic-tran-img', image)
+        # cv2.imshow('after-elastic-tran-mask', masks[0] * 255)
+        #
+        # cv2.waitKeyEx(0)

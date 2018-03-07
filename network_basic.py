@@ -4,7 +4,7 @@ from tensorflow.python.ops.losses.losses_impl import Reduction
 
 from data_augmentation import random_crop_224, data_to_segment_input, center_crop_224, \
     data_to_image, resize_shortedge_if_small_224, random_flip_lr, random_flip_ud, random_scaling, random_affine, \
-    random_color, data_to_normalize1
+    random_color, data_to_normalize1, data_to_elastic_transform_wrapper
 from data_feeder import CellImageDataManagerTrain, CellImageDataManagerValid, CellImageDataManagerTest
 from network import Network
 
@@ -133,6 +133,7 @@ class NetworkBasic(Network):
         ds_train = MapDataComponent(ds_train, resize_shortedge_if_small_224)
         ds_train = MapDataComponent(ds_train, random_crop_224)
         ds_train = MapDataComponent(ds_train, random_flip_lr)
+        ds_train = MapDataComponent(ds_train, data_to_elastic_transform_wrapper)
         ds_train = MapDataComponent(ds_train, random_flip_ud)
         ds_train = PrefetchData(ds_train, 1000, 24)
         ds_train = MapData(ds_train, lambda x: data_to_segment_input(x, not self.is_color, self.unet_weight))
