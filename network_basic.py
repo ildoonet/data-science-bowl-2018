@@ -199,7 +199,8 @@ class NetworkBasic(Network):
         # sementation to instance-aware segmentations.
         instances = Network.parse_merged_output(
             merged_output, cutoff=0.5, use_separator=False,
-            use_dilation=self.unet_weight
+            use_dilation=self.unet_weight,
+            fill_holes=True
         )
 
         return instances

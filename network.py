@@ -87,7 +87,7 @@ class Network:
         return cascades, windows
 
     @staticmethod
-    def parse_merged_output(output, cutoff=0.5, use_separator=True, use_dilation=False):
+    def parse_merged_output(output, cutoff=0.5, use_separator=True, use_dilation=False, fill_holes=False):
         """
         Split 1-channel merged output for instance segmentation
         :param cutoff:
@@ -112,6 +112,9 @@ class Network:
         instances = []
         for i in range(1, lab_img.max() + 1):
             instances.append(lab_img == i)
+
+        if fill_holes:
+            instances = [ndimage.morphology.binary_fill_holes(i) for i in instances]
         return instances
 
     @staticmethod

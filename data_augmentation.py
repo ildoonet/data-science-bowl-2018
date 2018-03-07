@@ -101,8 +101,9 @@ def random_scaling(data):
     if s == 0:
         return data
     img_h, img_w = data.img.shape[:2]
-    new_w = int(random.uniform(0.8, 1.2) * img_w)
-    new_h = int(random.uniform(0.8, 1.2) * img_h)
+    scale_f = 0.4
+    new_w = int(random.uniform(1.-scale_f, 1.+scale_f) * img_w)
+    new_h = int(random.uniform(1.-scale_f, 1.+scale_f) * img_h)
 
     data.img = cv2.resize(data.img, (new_w, new_h))
     data.masks = [cv2.resize(mask, (new_w, new_h)) for mask in data.masks]

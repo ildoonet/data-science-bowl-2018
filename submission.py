@@ -67,7 +67,7 @@ class KaggleSubmission:
         sub.to_csv(filepath, index=False)
 
 
-def get_iou(a, b):
+def get_iou1(a, b):
     if len(a.shape) == 2:
         a = a[..., np.newaxis]
     if len(b.shape) == 2:
@@ -83,6 +83,28 @@ def get_iou(a, b):
         return 0.0
     iou = intersection / union
     return iou
+
+
+def get_iou2(a, b):
+    if len(a.shape) == 2:
+        a = a[..., np.newaxis]
+    if len(b.shape) == 2:
+        b = b[..., np.newaxis]
+    a[a > 0] = 1.
+    b[b > 0] = 1.
+    intersection = a * b
+    union = a + b
+    union[union > 0] = 1.
+    intersection = np.sum(intersection)
+    if intersection == 0:
+        return 0.0
+    union = np.sum(union)
+    if union == 0:
+        return 0.0
+    return intersection / union
+
+
+get_iou = get_iou2
 
 
 def get_metric(instances, label_trues, thr_list):

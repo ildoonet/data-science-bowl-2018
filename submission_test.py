@@ -1,7 +1,8 @@
 import unittest
 import numpy as np
+import time
 
-from submission import rle_encoding, get_iou, get_metric
+from submission import rle_encoding, get_iou, get_metric, get_iou1, get_iou2
 
 
 class TestSubmission(unittest.TestCase):
@@ -57,6 +58,20 @@ class TestSubmission(unittest.TestCase):
     def test_iou(self):
         iou = get_iou(self.a, self.b)
         self.assertAlmostEqual(iou, 0.5, 0.001)
+
+    def test_iou_speed(self):
+        t = time.time()
+        for _ in range(10000):
+            iou1 = get_iou1(self.a, self.b)
+        t1 = time.time() - t
+
+        t = time.time()
+        for _ in range(10000):
+            iou2 = get_iou2(self.a, self.b)
+        t2 = time.time() - t
+
+        self.assertEqual(iou1, iou2)
+        print('t_iou1=', t1, 't_iou2=', t2)
 
     def test_metric(self):
         labels = np.array([
