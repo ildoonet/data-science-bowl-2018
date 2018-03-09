@@ -27,7 +27,7 @@ class NetworkUnet(NetworkBasic):
         }
 
         dropout_params = {
-            'keep_prob': 0.9,
+            'keep_prob': 0.8,
             'is_training': self.is_training,
         }
 
@@ -44,24 +44,33 @@ class NetworkUnet(NetworkBasic):
 
         with slim.arg_scope([slim.convolution, slim.conv2d_transpose], **conv_args):
             with slim.arg_scope([slim.dropout], **dropout_params):
+                step_size = 4
+                base_feature_size = 32
+                max_feature_size = base_feature_size * (2 ** step_size)
                 # down sampling steps
-                for i in range(4):
-                    net = NetworkUnet.double_conv(net, int(32*(2**i)), scope='down_conv_%d' % (i + 1))
+                for i in range(step_size):
+                    net = NetworkUnet.double_conv(net, int(base_feature_size*(2**i)), scope='down_conv_%d' % (i + 1))
                     features.append(net)
-                    net = slim.max_pool2d(net, [3, 3], 2, padding='SAME', scope='pool%d' % (i + 1))
+                    net = slim.max_pool2d(net, [2, 2], 2, padding='SAME', scope='pool%d' % (i + 1))
                 # middle
-                net = NetworkUnet.double_conv(net, 512, scope='middle_conv_1')
+                net = NetworkUnet.double_conv(net, max_feature_size, scope='middle_conv_1')
                 # upsampling steps
-                for i in range(4):
-                    net = slim.conv2d_transpose(net, int(256/(2**i)), [3, 3], 2, scope='up_trans_conv_%d' % (i + 1))
+                for i in range(step_size):
+                    net = slim.conv2d_transpose(net, int(max_feature_size/(2**(i+1))), [2, 2], 2, scope='up_trans_conv_%d' % (i + 1))
                     down_feat = features.pop()  # upsample with origin version
-                    net = tf.concat([down_feat, net], axis=-1)
-                    net = NetworkUnet.double_conv(net, int(256/(2**i)), scope='up_conv_%d' % (i + 1))
 
+                    assert net.shape[3] == down_feat.shape[3], '%d, %d, %d' % (i, net.shape[3], down_feat.shape[3])
+                    net = tf.concat([down_feat, net], axis=-1)
+                    net = NetworkUnet.double_conv(net, int(max_feature_size/(2**(i+1))), scope='up_conv_%d' % (i + 1))
+
+                # not in the original paper
                 net = NetworkUnet.double_conv(net, 32, scope='output_conv_1')
+
+        # original paper : one 1x1 conv
         net = slim.convolution(net, 1, [3, 3], 1, scope='final_conv',
                                activation_fn=None,
-                               padding='SAME', weights_initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.01))
+                               padding='SAME',
+                               weights_initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.01))
 
         self.logit = net
         self.output = tf.nn.sigmoid(net, 'visualization')

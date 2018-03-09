@@ -14,6 +14,7 @@ from network import Network
 from network_basic import NetworkBasic
 from network_unet import NetworkUnet
 from network_fusionnet import NetworkFusionNet
+from network_unet_valid import NetworkUnetValid
 from submission import KaggleSubmission, get_multiple_metric
 
 logger = logging.getLogger('train')
@@ -32,6 +33,8 @@ class Trainer:
             network = NetworkBasic(batchsize, unet_weight=True)
         elif model == 'simple_unet':
             network = NetworkUnet(batchsize, unet_weight=True)
+        elif model == 'unet':
+            network = NetworkUnetValid(batchsize, unet_weight=True)
         elif model == 'simple_fusion':
             network = NetworkFusionNet(batchsize)
         else:
