@@ -63,15 +63,6 @@ class CellImageData:
             m = m + mask[..., np.newaxis] * (idx + 1)
         return m
 
-    @staticmethod
-    def batch_to_multi_masks(multi_masks_batch, transpose=True):
-        a = np.array([multi_masks_batch == (idx + 1) for idx in range(np.max(multi_masks_batch))], dtype=np.uint8)
-
-        if transpose:
-            return a[..., 0].transpose([1, 2, 0])
-        else:
-            return a[..., 0]
-
     def image(self, is_gray=True):
         """
         :return: (h, w, 3) or (h, w, 1) numpy
@@ -166,3 +157,12 @@ def get_default_dataflow_batch(batchsize=32):
     ds = PrefetchData(ds, 10, 2)
 
     return ds
+
+
+def batch_to_multi_masks(multi_masks_batch, transpose=True):
+    a = np.array([multi_masks_batch == (idx + 1) for idx in range(np.max(multi_masks_batch))], dtype=np.uint8)
+
+    if transpose:
+        return a[..., 0].transpose([1, 2, 0])
+    else:
+        return a[..., 0]

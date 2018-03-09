@@ -8,7 +8,7 @@ from scipy import ndimage
 from skimage.morphology import label
 
 from colors import get_colors
-from data_feeder import CellImageData
+from data_feeder import batch_to_multi_masks
 from separator import separation
 
 
@@ -44,7 +44,7 @@ class Network:
 
         if label is not None:
             if not isinstance(label, list):
-                label = CellImageData.batch_to_multi_masks(label, transpose=False)
+                label = batch_to_multi_masks(label, transpose=False)
                 label = list(label)
             canvas[:, img_w * colcnt:img_w * (colcnt + 1), :] = Network.visualize_segments(label, image)
             colcnt += 1
