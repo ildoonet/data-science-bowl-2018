@@ -167,3 +167,11 @@ class DataFeederTest(unittest.TestCase):
             self.assertGreater(dp[2][1], 0)
             if idx > 10:
                 break
+
+    # def test_unet_weights(self):
+    #     d = CellImageData('a6515d73077866808ad4cb837ecdac33612527b8a1041e82135e40fce2bb9380', path=master_dir_train)
+    #     weights = d.unet_weights()
+    #     print(weights)
+
+if __name__ == '__main__':
+    unittest.main()

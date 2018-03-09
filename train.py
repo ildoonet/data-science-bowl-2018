@@ -27,12 +27,21 @@ logger.addHandler(ch)
 
 
 class Trainer:
-    def run(self, model, epoch=30, batchsize=32, learning_rate=0.01, valid_interval=2,
-            tag='', show_train=0, show_valid=0, show_test=0, checkpoint=''):
+    def run(self, model, epoch=30,
+            batchsize=32, learning_rate=0.01,
+            decay_steps=300, decay_rate=0.33,
+            batch_norm_decay=0.9, batch_norm_epsilon=0.001,
+            keep_prob=0.9, stddev=0.01,
+            valid_interval=2, tag='', show_train=0, show_valid=0, show_test=0, save_result=True, checkpoint=''):
         if model == 'basic':
             network = NetworkBasic(batchsize, unet_weight=True)
         elif model == 'simple_unet':
-            network = NetworkUnet(batchsize, unet_weight=True)
+            network = NetworkUnet(batchsize,
+                                  unet_weight=True,
+                                  batch_norm_decay=batch_norm_decay,
+                                  batch_norm_epsilon=batch_norm_epsilon,
+                                  keep_prob=keep_prob,
+                                  stddev=stddev)
         elif model == 'unet':
             network = NetworkUnetValid(batchsize, unet_weight=True)
         elif model == 'simple_fusion':
@@ -49,7 +58,10 @@ class Trainer:
         net_loss = network.get_loss()
 
         global_step = tf.Variable(0, trainable=False)
-        learning_rate_v, train_op = network.get_optimize_op(learning_rate, global_step)
+        learning_rate_v, train_op = network.get_optimize_op(global_step=global_step,
+                                                            learning_rate=learning_rate,
+                                                            decay_steps=decay_steps,
+                                                            decay_rate=decay_rate)
 
         logger.info('constructed-')
 
@@ -160,24 +172,25 @@ class Trainer:
                 cv2.waitKey(0)
 
             # show sample in test set
-            kaggle_submit = KaggleSubmission(name)
-            for idx, dp_test in enumerate(ds_test.get_data()):
-                image = dp_test[0]
-                test_id = dp_test[1][0]
-                img_h, img_w = dp_test[2][0], dp_test[2][1]
-                assert img_h > 0 and img_w > 0, '%d %s' % (idx, test_id)
-                instances = network.inference(sess, image)
+            if save_result:
+                kaggle_submit = KaggleSubmission(name)
+                for idx, dp_test in enumerate(ds_test.get_data()):
+                    image = dp_test[0]
+                    test_id = dp_test[1][0]
+                    img_h, img_w = dp_test[2][0], dp_test[2][1]
+                    assert img_h > 0 and img_w > 0, '%d %s' % (idx, test_id)
+                    instances = network.inference(sess, image)
 
-                img_vis = Network.visualize(image, None, instances, None)
-                if idx < show_test:
-                    cv2.imshow('test', img_vis)
-                    cv2.waitKey(0)
+                    img_vis = Network.visualize(image, None, instances, None)
+                    if idx < show_test:
+                        cv2.imshow('test', img_vis)
+                        cv2.waitKey(0)
 
-                # save to submit
-                instances = Network.resize_instances(instances, (img_h, img_w))
-                kaggle_submit.save_image(test_id, img_vis)
-                kaggle_submit.add_result(test_id, instances)
-            kaggle_submit.save()
+                    # save to submit
+                    instances = Network.resize_instances(instances, (img_h, img_w))
+                    kaggle_submit.save_image(test_id, img_vis)
+                    kaggle_submit.add_result(test_id, instances)
+                kaggle_submit.save()
         logger.info('done. best_loss_val=%.4f best_mIOU=%.4f name=%s' % (best_loss_val, best_miou_val, name))
         return best_miou_val
 

@@ -25,7 +25,7 @@ class Network:
             elif norm == 'norm1':
                 image = ((image + 1.0) * 128).astype(np.uint8)
             else:
-                raise
+                raise Exception('unspecified norm')
 
         columns = 1 + sum([1 for x in [label, segments, weights] if x is not None])
         colcnt = 0
@@ -181,7 +181,7 @@ class Network:
     def get_loss(self):
         pass
 
-    def get_optimize_op(self, learning_rate, global_step):
+    def get_optimize_op(self, global_step, learning_rate, decay_steps=300, decay_rate=0.33):
         """
         Need to override if you want to use different optimization policy.
         :param learning_rate:
@@ -189,7 +189,7 @@ class Network:
         :return: (learning_rate, optimizer) tuple
         """
         learning_rate = tf.train.exponential_decay(learning_rate, global_step,
-                                                   decay_steps=450, decay_rate=0.5, staircase=True)
+                                                   decay_steps=decay_steps, decay_rate=decay_rate, staircase=True)
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         with tf.control_dependencies(update_ops):
             # optimizer = tf.train.RMSPropOptimizer(learning_rate, decay=0.9, momentum=0.0)
