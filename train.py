@@ -179,6 +179,7 @@ class Trainer:
                 kaggle_submit.add_result(test_id, instances)
             kaggle_submit.save()
         logger.info('done. best_loss_val=%.4f best_mIOU=%.4f name=%s' % (best_loss_val, best_miou_val, name))
+        return best_miou_val
 
 
 if __name__ == '__main__':
