@@ -2,7 +2,21 @@ import random
 import cv2
 import numpy as np
 from imgaug import augmenters as iaa
+from scipy import ndimage
 from scipy.ndimage import gaussian_filter, map_coordinates
+
+
+def erosion_mask(data):
+    total_map = np.zeros_like(data.masks[0], dtype=np.uint8)
+    masks = []
+    for mask in data.masks:
+        mask[total_map > 0] = 0
+        mask = ndimage.morphology.binary_erosion((mask > 0), border_value=1).astype(np.uint8)
+        total_map = total_map + mask
+
+        masks.append(mask)
+    data.masks = masks
+    return data
 
 
 def random_flip_lr(data):
@@ -102,9 +116,10 @@ def random_scaling(data):
     if s == 0:
         return data
     img_h, img_w = data.img.shape[:2]
-    scale_f = 0.4
-    new_w = int(random.uniform(1.-scale_f, 1.+scale_f) * img_w)
-    new_h = int(random.uniform(1.-scale_f, 1.+scale_f) * img_h)
+    scale_f1 = 0.4
+    scale_f2 = 0.4
+    new_w = int(random.uniform(1.-scale_f1, 1.+scale_f2) * img_w)
+    new_h = int(random.uniform(1.-scale_f1, 1.+scale_f2) * img_h)
 
     data.img = cv2.resize(data.img, (new_w, new_h))
     data.masks = [cv2.resize(mask, (new_w, new_h)) for mask in data.masks]
@@ -114,7 +129,7 @@ def random_scaling(data):
 
 def random_affine(data):
     s = random.randint(0, 1)
-    if s == 0:
+    if s <= 0:
         return data
     rand_rotate = np.random.randint(-45, 45)
     rand_shear = np.random.randint(-10, 10)
@@ -131,7 +146,7 @@ def random_color(data):
     reference : https://github.com/neptune-ml/data-science-bowl-2018/blob/master/augmentation.py
     """
     s = random.randint(0, 1)
-    if s == 0:
+    if s <= 0:
         return data
     aug = iaa.Sequential([
         # Color
@@ -155,6 +170,16 @@ def random_color(data):
     ], random_order=True)
     data.img = aug.augment_image(data.img)
     # data.masks = [aug.augment_image(mask) for mask in data.masks]
+    return data
+
+
+def random_color2(data):
+    aug = iaa.Sequential([
+        iaa.Invert(0.25, per_channel=False),
+        iaa.ContrastNormalization((0.7, 1.4)),
+        iaa.Sometimes(0.2, iaa.AddToHueAndSaturation((-45, 45), per_channel=True))
+    ])
+    data.img = aug.augment_image(data.img)
     return data
 
 
