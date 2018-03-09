@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 
 from data_augmentation import resize_shortedge, random_crop, center_crop, resize_shortedge_if_small, \
-    flip, data_to_elastic_transform
+    flip, data_to_elastic_transform, random_color2
 from data_feeder import CellImageData, master_dir_train
 
 
@@ -71,3 +71,10 @@ class TestAugmentation(unittest.TestCase):
         # cv2.imshow('after-elastic-tran-mask', masks[0] * 255)
         #
         # cv2.waitKeyEx(0)
+
+    def test_random_color2(self):
+
+        for _ in range(5):
+            d = random_color2(self.d)
+            cv2.imshow('random_color2', d.img)
+            cv2.waitKeyEx(0)

@@ -5,8 +5,10 @@ import time
 import cv2
 import numpy as np
 from tensorpack.dataflow.common import TestDataSpeed, MapDataComponent, MapData
+from tensorpack.dataflow.parallel import PrefetchData
 
-from data_augmentation import data_to_image, random_affine
+from data_augmentation import data_to_image, random_affine, random_color, random_scaling, resize_shortedge_if_small, \
+    random_crop, random_flip_lr, random_flip_ud, erosion_mask
 from data_feeder import CellImageData, get_default_dataflow, master_dir_train, get_default_dataflow_batch, \
     CellImageDataManagerTest, master_dir_test, CellImageDataManagerTrain
 
@@ -70,8 +72,8 @@ class DataFeederTest(unittest.TestCase):
 
     def test_image_train2(self):
         # test erosion & unet-weight
-        d = CellImageData('00ae65c1c6631ae6f2be1a449902976e6eb8483bf6b0740d00530220832c6d3e', path=master_dir_train,
-                          erosion_mask=True)
+        d = CellImageData('00ae65c1c6631ae6f2be1a449902976e6eb8483bf6b0740d00530220832c6d3e', path=master_dir_train)
+        d = erosion_mask(d)
         self.assertGreater(d.img_w, 0)
         self.assertGreater(d.img_h, 0)
 
@@ -97,6 +99,28 @@ class DataFeederTest(unittest.TestCase):
         TestDataSpeed(ds, size=100).start()
         dt = time.time() - t
         self.assertLessEqual(dt, 2.0)
+
+    def test_speed2(self):
+        ds_train = CellImageDataManagerTrain()
+        # ds_train = MapDataComponent(ds_train, random_affine)
+        # ds_train = MapDataComponent(ds_train, random_color)
+        # ds_train = MapDataComponent(ds_train, random_scaling)
+        # ds_train = MapDataComponent(ds_train, lambda x: resize_shortedge_if_small(x, 228))
+        # ds_train = MapDataComponent(ds_train, lambda x: random_crop(x, 228, 228))
+        # ds_train = MapDataComponent(ds_train, random_flip_lr)
+        # ds_train = MapDataComponent(ds_train, random_flip_ud)
+        # ds_train = MapDataComponent(ds_train, data_to_elastic_transform_wrapper)
+        ds_train = MapDataComponent(ds_train, erosion_mask)
+        ds_train = PrefetchData(ds_train, 1000, 24)
+
+        for idx, dp in enumerate(ds_train.get_data()):
+            if idx > 100:
+                break
+
+        t = time.time()
+        TestDataSpeed(ds_train, size=100).start()
+        dt = time.time() - t
+        self.assertLessEqual(dt, 5.0)
 
     def test_default_ds_batch(self):
         ds_batch = get_default_dataflow_batch(batchsize=16)

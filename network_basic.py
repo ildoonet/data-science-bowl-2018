@@ -4,7 +4,7 @@ from tensorflow.python.ops.losses.losses_impl import Reduction
 
 from data_augmentation import random_crop_224, data_to_segment_input, center_crop_224, \
     data_to_image, resize_shortedge_if_small_224, random_flip_lr, random_flip_ud, random_scaling, random_affine, \
-    random_color, data_to_normalize1, data_to_elastic_transform_wrapper
+    random_color, data_to_normalize1, data_to_elastic_transform_wrapper, random_color2, erosion_mask
 from data_feeder import CellImageDataManagerTrain, CellImageDataManagerValid, CellImageDataManagerTest
 from network import Network
 
@@ -125,24 +125,29 @@ class NetworkBasic(Network):
         return net
 
     def get_input_flow(self):
-        ds_train = CellImageDataManagerTrain(erosion_mask=self.unet_weight)
+        ds_train = CellImageDataManagerTrain()
         # Augmentation :
         ds_train = MapDataComponent(ds_train, random_affine)
         ds_train = MapDataComponent(ds_train, random_color)
+        # ds_train = MapDataComponent(ds_train, random_color2)  # not good
         ds_train = MapDataComponent(ds_train, random_scaling)
         ds_train = MapDataComponent(ds_train, resize_shortedge_if_small_224)
         ds_train = MapDataComponent(ds_train, random_crop_224)
         ds_train = MapDataComponent(ds_train, random_flip_lr)
-        ds_train = MapDataComponent(ds_train, data_to_elastic_transform_wrapper)
+        # ds_train = MapDataComponent(ds_train, data_to_elastic_transform_wrapper)
         ds_train = MapDataComponent(ds_train, random_flip_ud)
+        if self.unet_weight:
+            ds_train = MapDataComponent(ds_train, erosion_mask)
         ds_train = PrefetchData(ds_train, 1000, 24)
         ds_train = MapData(ds_train, lambda x: data_to_segment_input(x, not self.is_color, self.unet_weight))
         ds_train = BatchData(ds_train, self.batchsize)
         ds_train = MapDataComponent(ds_train, data_to_normalize1)
         ds_train = PrefetchData(ds_train, 10, 2)
 
-        ds_valid = CellImageDataManagerValid(erosion_mask=self.unet_weight)
+        ds_valid = CellImageDataManagerValid()
         ds_valid = MapDataComponent(ds_valid, center_crop_224)
+        if self.unet_weight:
+            ds_valid = MapDataComponent(ds_valid, erosion_mask)
         ds_valid = MapData(ds_valid, lambda x: data_to_segment_input(x, not self.is_color, self.unet_weight))
         ds_valid = BatchData(ds_valid, self.batchsize, remainder=True)
         ds_valid = MapDataComponent(ds_valid, data_to_normalize1)

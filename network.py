@@ -189,7 +189,7 @@ class Network:
         :return: (learning_rate, optimizer) tuple
         """
         learning_rate = tf.train.exponential_decay(learning_rate, global_step,
-                                                   decay_steps=300, decay_rate=0.33, staircase=True)
+                                                   decay_steps=450, decay_rate=0.5, staircase=True)
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         with tf.control_dependencies(update_ops):
             # optimizer = tf.train.RMSPropOptimizer(learning_rate, decay=0.9, momentum=0.0)

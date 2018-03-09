@@ -2,6 +2,7 @@ import unittest
 import numpy as np
 
 from network import Network
+from network_unet_valid import get_net_input_size
 
 
 class TestNetwork(unittest.TestCase):
@@ -78,3 +79,8 @@ class TestNetwork(unittest.TestCase):
         self.assertEqual(resized[0].shape[0], 20)
         self.assertEqual(resized[0].shape[1], 30)
         self.assertEqual(resized[0].shape[2], 1)
+
+    def test_unet_valid_input_size(self):
+        # as in the original unet paper
+        n = get_net_input_size(388, 4)
+        self.assertEqual(n, 572)

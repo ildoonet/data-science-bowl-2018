@@ -15,7 +15,7 @@ master_dir_test = '/data/public/rw/datasets/dsb2018/test'
 
 
 class CellImageData:
-    def __init__(self, target_id, path, erosion_mask=False):
+    def __init__(self, target_id, path):
         self.target_id = target_id
 
         # read
@@ -36,8 +36,6 @@ class CellImageData:
             mask_path = os.path.join(target_dir, 'masks', mask_file)
             mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
             mask = mask >> 7    # faster than mask // 129
-            if erosion_mask:
-                mask = ndimage.morphology.binary_erosion((mask > 0), border_value=1).astype(np.uint8)
             self.masks.append(mask)
 
     def single_mask(self, ch1=True):
@@ -103,11 +101,10 @@ class CellImageData:
 
 
 class CellImageDataManager(RNGDataFlow):
-    def __init__(self, path, idx_list, is_shuffle=False, erosion_mask=False):
+    def __init__(self, path, idx_list, is_shuffle=False):
         self.path = path
         self.idx_list = idx_list
         self.is_shuffle = is_shuffle
-        self.erosion_mask = erosion_mask
 
     def size(self):
         return len(self.idx_list)
@@ -117,27 +114,25 @@ class CellImageDataManager(RNGDataFlow):
             random.shuffle(self.idx_list)
 
         for idx in self.idx_list:
-            yield [CellImageData(idx, self.path, erosion_mask=self.erosion_mask)]
+            yield [CellImageData(idx, self.path)]
 
 
 class CellImageDataManagerTrain(CellImageDataManager):
-    def __init__(self, erosion_mask=False):
+    def __init__(self):
         super().__init__(
             master_dir_train,
             list(next(os.walk(master_dir_train))[1])[:576],
-            True,
-            erosion_mask
+            True
         )
         # TODO : train/valid set k folds implementation
 
 
 class CellImageDataManagerValid(CellImageDataManager):
-    def __init__(self, erosion_mask=False):
+    def __init__(self):
         super().__init__(
             master_dir_train,
             list(next(os.walk(master_dir_train))[1])[576:],
-            False,
-            erosion_mask
+            False
         )
 
 
