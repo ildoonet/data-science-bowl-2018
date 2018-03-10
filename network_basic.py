@@ -198,8 +198,17 @@ class NetworkBasic(Network):
 
         # merge multiple results
         merged_output = np.zeros((image.shape[0], image.shape[1], 1), dtype=np.float32)
+        # merged_counts = np.zeros((image.shape[0], image.shape[1], 1), dtype=np.int32)
         for window, output in zip(windows, outputs):
+            # suppress with maximum value
             merged_output[window.indices()] = np.maximum(output, merged_output[window.indices()])
+            # suppress with average
+            # merged_output[window.indices()] = output + merged_output[window.indices()]
+            # merged_counts[window.indices()] = merged_counts[window.indices()] + 1
+
+        # notzeroidx = merged_counts > 0
+        # merged_output[notzeroidx] = merged_output[notzeroidx] / merged_counts[notzeroidx]
+
         merged_output = merged_output.reshape((image.shape[0], image.shape[1]))
 
         # sementation to instance-aware segmentations.

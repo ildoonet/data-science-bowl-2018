@@ -5,13 +5,19 @@ from imgaug import augmenters as iaa
 from scipy import ndimage
 from scipy.ndimage import gaussian_filter, map_coordinates
 
+from hyperparams import HyperParams
+
 
 def erosion_mask(data):
     total_map = np.zeros_like(data.masks[0], dtype=np.uint8)
     masks = []
     for mask in data.masks:
         mask[total_map > 0] = 0
-        mask = ndimage.morphology.binary_erosion((mask > 0), border_value=1).astype(np.uint8)
+        mask = ndimage.morphology.binary_erosion(
+            (mask > 0),
+            border_value=1,
+            iterations=HyperParams.get().pre_erosion_iter
+        ).astype(np.uint8)
         total_map = total_map + mask
 
         masks.append(mask)
@@ -116,8 +122,8 @@ def random_scaling(data):
     if s == 0:
         return data
     img_h, img_w = data.img.shape[:2]
-    scale_f1 = 0.4
-    scale_f2 = 0.4
+    scale_f1 = HyperParams.get().pre_scale_f1
+    scale_f2 = HyperParams.get().pre_scale_f2
     new_w = int(random.uniform(1.-scale_f1, 1.+scale_f2) * img_w)
     new_h = int(random.uniform(1.-scale_f1, 1.+scale_f2) * img_h)
 
@@ -131,9 +137,9 @@ def random_affine(data):
     s = random.randint(0, 1)
     if s <= 0:
         return data
-    rand_rotate = np.random.randint(-45, 45)
-    rand_shear = np.random.randint(-10, 10)
-    rand_translate = np.random.uniform(-0.1, 0.1)
+    rand_rotate = np.random.randint(-HyperParams.get().pre_affine_rotate, HyperParams.get().pre_affine_rotate)
+    rand_shear = np.random.randint(-HyperParams.get().pre_affine_shear, HyperParams.get().pre_affine_shear)
+    rand_translate = np.random.uniform(-HyperParams.get().pre_affine_translate, HyperParams.get().pre_affine_translate)
 
     aug = iaa.Affine(scale=1.0, translate_percent=rand_translate, rotate=rand_rotate, shear=rand_shear, cval=0, mode='reflect')
     data.img = aug.augment_image(data.img)

@@ -1,22 +1,13 @@
 import tensorflow as tf
 from tensorflow.contrib import slim
+
+from hyperparams import HyperParams
 from network_basic import NetworkBasic
 
 
 class NetworkUnet(NetworkBasic):
-    def __init__(self,
-                 batchsize,
-                 unet_weight,
-                 batch_norm_decay=0.9,
-                 batch_norm_epsilon=0.001,
-                 keep_prob=0.9,
-                 stddev=0.01,
-                 ):
+    def __init__(self, batchsize, unet_weight, ):
         super(NetworkUnet, self).__init__(batchsize=batchsize, unet_weight=unet_weight)
-        self.batch_norm_decay = batch_norm_decay
-        self.batch_norm_epsilon = batch_norm_epsilon
-        self.keep_prob = keep_prob
-        self.stddev = stddev
 
     @staticmethod
     def double_conv(net, nb_filter, scope, keep_prob):
@@ -31,20 +22,20 @@ class NetworkUnet(NetworkBasic):
             'is_training': self.is_training,
             'center': True,
             'scale': True,
-            'decay': self.batch_norm_decay,
-            'epsilon': self.batch_norm_epsilon,
+            'decay': HyperParams.get().net_bn_decay,
+            'epsilon': HyperParams.get().net_bn_epsilon,
             'fused': True,
             'zero_debias_moving_mean': True
         }
 
         dropout_params = {
-            'keep_prob': self.keep_prob,
+            'keep_prob': HyperParams.get().net_dropout_keep,
             'is_training': self.is_training,
         }
 
         conv_args = {
             'padding': 'SAME',
-            'weights_initializer': tf.truncated_normal_initializer(mean=0.0, stddev=self.stddev),
+            'weights_initializer': tf.truncated_normal_initializer(mean=0.0, stddev=HyperParams.get().net_init_stddev),
             'normalizer_fn': slim.batch_norm,
             'normalizer_params': batch_norm_params,
             'activation_fn': tf.nn.elu
@@ -55,8 +46,8 @@ class NetworkUnet(NetworkBasic):
 
         with slim.arg_scope([slim.convolution, slim.conv2d_transpose], **conv_args):
             with slim.arg_scope([slim.dropout], **dropout_params):
-                step_size = 4
-                base_feature_size = 32
+                step_size = HyperParams.get().unet_step_size
+                base_feature_size = HyperParams.get().unet_base_feature
                 max_feature_size = base_feature_size * (2 ** step_size)
 
                 # down sampling steps

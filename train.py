@@ -27,21 +27,14 @@ logger.addHandler(ch)
 
 
 class Trainer:
-    def run(self, model, epoch=30,
-            batchsize=32, learning_rate=0.01,
-            decay_steps=300, decay_rate=0.33,
-            batch_norm_decay=0.9, batch_norm_epsilon=0.001,
-            keep_prob=0.9, stddev=0.01,
-            valid_interval=2, tag='', show_train=0, show_valid=0, show_test=0, save_result=True, checkpoint=''):
+    def run(self, model, epoch=100,
+            batchsize=32, learning_rate=0.0001,
+            valid_interval=2, tag='', show_train=0, show_valid=0, show_test=0, save_result=True, checkpoint='',
+            **kwargs):
         if model == 'basic':
             network = NetworkBasic(batchsize, unet_weight=True)
         elif model == 'simple_unet':
-            network = NetworkUnet(batchsize,
-                                  unet_weight=True,
-                                  batch_norm_decay=batch_norm_decay,
-                                  batch_norm_epsilon=batch_norm_epsilon,
-                                  keep_prob=keep_prob,
-                                  stddev=stddev)
+            network = NetworkUnet(batchsize, unet_weight=True)
         elif model == 'unet':
             network = NetworkUnetValid(batchsize, unet_weight=True)
         elif model == 'simple_fusion':
@@ -59,9 +52,7 @@ class Trainer:
 
         global_step = tf.Variable(0, trainable=False)
         learning_rate_v, train_op = network.get_optimize_op(global_step=global_step,
-                                                            learning_rate=learning_rate,
-                                                            decay_steps=decay_steps,
-                                                            decay_rate=decay_rate)
+                                                            learning_rate=learning_rate)
 
         logger.info('constructed-')
 

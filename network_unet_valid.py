@@ -10,6 +10,7 @@ from data_feeder import CellImageDataManagerTrain, CellImageDataManagerValid, Ce
 from tensorpack.dataflow.common import BatchData, MapData, MapDataComponent
 from tensorpack.dataflow.parallel import PrefetchData
 
+from hyperparams import HyperParams
 from network import Network
 from network_basic import NetworkBasic
 
@@ -25,26 +26,24 @@ def get_net_input_size(image_size, num_block):
     return network_input_size
 
 
-INPUT_IMAGE_SIZE = 228
-NUM_BLOCK = 4
-NETWORK_INPUT_SIZE = get_net_input_size(INPUT_IMAGE_SIZE, NUM_BLOCK)
-
-assert (NETWORK_INPUT_SIZE - INPUT_IMAGE_SIZE) % 2 == 0
-INPUT_MIRROR_PAD = (NETWORK_INPUT_SIZE - INPUT_IMAGE_SIZE) // 2
-
-
 class NetworkUnetValid(NetworkBasic):
     def __init__(self, batchsize, unet_weight):
         super().__init__(batchsize, unet_weight)
 
+        self.img_size = 228
+        self.num_block = HyperParams.get().unet_step_size
+        self.inp_size = get_net_input_size(self.img_size, self.num_block)
+        assert (self.inp_size - self.img_size) % 2 == 0
+        self.pad_size = (self.inp_size - self.img_size) // 2
+
         self.batchsize = batchsize
         self.is_color = True
         if self.is_color:
-            self.input_batch = tf.placeholder(tf.float32, shape=(None, INPUT_IMAGE_SIZE, INPUT_IMAGE_SIZE, 3), name='image')
+            self.input_batch = tf.placeholder(tf.float32, shape=(None, self.img_size, self.img_size, 3), name='image')
         else:
-            self.input_batch = tf.placeholder(tf.float32, shape=(None, INPUT_IMAGE_SIZE, INPUT_IMAGE_SIZE, 1), name='image')
-        self.mask_batch = tf.placeholder(tf.float32, shape=(None, INPUT_IMAGE_SIZE, INPUT_IMAGE_SIZE, 1), name='mask')
-        self.weight_batch = tf.placeholder(tf.float32, shape=(None, INPUT_IMAGE_SIZE, INPUT_IMAGE_SIZE, 1), name='weight')
+            self.input_batch = tf.placeholder(tf.float32, shape=(None, self.img_size, self.img_size, 1), name='image')
+        self.mask_batch = tf.placeholder(tf.float32, shape=(None, self.img_size, self.img_size, 1), name='mask')
+        self.weight_batch = tf.placeholder(tf.float32, shape=(None, self.img_size, self.img_size, 1), name='weight')
         self.unused = None
         self.logit = None
         self.output = None
@@ -60,7 +59,7 @@ class NetworkUnetValid(NetworkBasic):
 
     def build(self):
         # https://github.com/tensorflow/tensorflow/blob/master/tensorflow/contrib/layers/python/layers/layers.py#L429
-        weight_init = tf.truncated_normal_initializer(mean=0.0, stddev=0.01)
+        weight_init = tf.truncated_normal_initializer(mean=0.0, stddev=HyperParams.get().net_init_stddev)
         batch_norm_params = {
             'is_training': self.is_training,
             'center': True,
@@ -89,21 +88,21 @@ class NetworkUnetValid(NetworkBasic):
         # mirror padding
         paddings = tf.constant([
             [0, 0],
-            [INPUT_MIRROR_PAD, INPUT_MIRROR_PAD],
-            [INPUT_MIRROR_PAD, INPUT_MIRROR_PAD],
+            [self.pad_size, self.pad_size],
+            [self.pad_size, self.pad_size],
             [0, 0],
         ])
         net = tf.pad(net, paddings, "REFLECT", name='img2inp')
-        assert net.shape[1] == NETWORK_INPUT_SIZE, net.shape[2] == NETWORK_INPUT_SIZE
+        assert net.shape[1] == self.inp_size, net.shape[2] == self.inp_size
 
         features = []
         with slim.arg_scope([slim.convolution, slim.conv2d_transpose], **conv_args):
             with slim.arg_scope([slim.dropout], **dropout_params):
                 base_feature_size = 32
-                max_feature_size = base_feature_size * (2 ** NUM_BLOCK)
+                max_feature_size = base_feature_size * (2 ** self.num_block)
 
                 # down sampling steps
-                for i in range(NUM_BLOCK):
+                for i in range(self.num_block):
                     net = NetworkUnetValid.double_conv(net, int(base_feature_size*(2**i)), scope='down_conv_%d' % (i + 1))
                     features.append(net)
                     net = slim.max_pool2d(net, [2, 2], 2, padding='VALID', scope='pool%d' % (i + 1))
@@ -112,7 +111,7 @@ class NetworkUnetValid(NetworkBasic):
                 net = NetworkUnetValid.double_conv(net, max_feature_size, scope='middle_conv_1')
 
                 # upsampling steps
-                for i in range(NUM_BLOCK):
+                for i in range(self.num_block):
                     # up-conv
                     net = slim.conv2d_transpose(net, int(max_feature_size/(2**(i+1))), [2, 2], 2, scope='up_trans_conv_%d' % (i + 1))
 
@@ -153,8 +152,8 @@ class NetworkUnetValid(NetworkBasic):
         ds_train = MapDataComponent(ds_train, random_affine)
         ds_train = MapDataComponent(ds_train, random_color)
         ds_train = MapDataComponent(ds_train, random_scaling)
-        ds_train = MapDataComponent(ds_train, lambda x: resize_shortedge_if_small(x, INPUT_IMAGE_SIZE))
-        ds_train = MapDataComponent(ds_train, lambda x: random_crop(x, INPUT_IMAGE_SIZE, INPUT_IMAGE_SIZE))
+        ds_train = MapDataComponent(ds_train, lambda x: resize_shortedge_if_small(x, self.img_size))
+        ds_train = MapDataComponent(ds_train, lambda x: random_crop(x, self.img_size, self.img_size))
         ds_train = MapDataComponent(ds_train, random_flip_lr)
         ds_train = MapDataComponent(ds_train, random_flip_ud)
         # ds_train = MapDataComponent(ds_train, data_to_elastic_transform_wrapper)
@@ -167,7 +166,7 @@ class NetworkUnetValid(NetworkBasic):
         ds_train = PrefetchData(ds_train, 10, 2)
 
         ds_valid = CellImageDataManagerValid()
-        ds_valid = MapDataComponent(ds_valid, lambda x: random_crop(x, INPUT_IMAGE_SIZE, INPUT_IMAGE_SIZE))
+        ds_valid = MapDataComponent(ds_valid, lambda x: random_crop(x, self.img_size, self.img_size))
         if self.unet_weight:
             ds_valid = MapDataComponent(ds_valid, erosion_mask)
         ds_valid = MapData(ds_valid, lambda x: data_to_segment_input(x, not self.is_color, self.unet_weight))
@@ -176,19 +175,19 @@ class NetworkUnetValid(NetworkBasic):
         # ds_valid = PrefetchData(ds_valid, 20, 24)
 
         ds_valid2 = CellImageDataManagerValid()
-        ds_valid2 = MapDataComponent(ds_valid2, lambda x: resize_shortedge_if_small(x, INPUT_IMAGE_SIZE))
+        ds_valid2 = MapDataComponent(ds_valid2, lambda x: resize_shortedge_if_small(x, self.img_size))
         ds_valid2 = MapData(ds_valid2, lambda x: data_to_segment_input(x, not self.is_color))
         ds_valid2 = MapDataComponent(ds_valid2, data_to_normalize1)
 
         ds_test = CellImageDataManagerTest()
-        ds_test = MapDataComponent(ds_test, lambda x: resize_shortedge_if_small(x, INPUT_IMAGE_SIZE))
+        ds_test = MapDataComponent(ds_test, lambda x: resize_shortedge_if_small(x, self.img_size))
         ds_test = MapData(ds_test, lambda x: data_to_image(x, not self.is_color))
         ds_test = MapDataComponent(ds_test, data_to_normalize1)
 
         return ds_train, ds_valid, ds_valid2, ds_test
 
     def inference(self, tf_sess, image):
-        cascades, windows = Network.sliding_window(image, INPUT_IMAGE_SIZE, 0.5)
+        cascades, windows = Network.sliding_window(image, self.img_size, 0.5)
 
         outputs = tf_sess.run(self.get_output(), feed_dict={
             self.input_batch: cascades,
@@ -203,9 +202,7 @@ class NetworkUnetValid(NetworkBasic):
 
         # sementation to instance-aware segmentations.
         instances = Network.parse_merged_output(
-            merged_output, cutoff=0.5, use_separator=False,
-            use_dilation=self.unet_weight,
-            fill_holes=True
+            merged_output, cutoff=0.5, use_separator=False
         )
 
         return instances

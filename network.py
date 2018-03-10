@@ -9,6 +9,7 @@ from skimage.morphology import label
 
 from colors import get_colors
 from data_feeder import CellImageData
+from hyperparams import HyperParams
 from separator import separation
 
 
@@ -87,7 +88,7 @@ class Network:
         return cascades, windows
 
     @staticmethod
-    def parse_merged_output(output, cutoff=0.5, use_separator=True, use_dilation=False, fill_holes=False):
+    def parse_merged_output(output, cutoff=0.5, use_separator=True):
         """
         Split 1-channel merged output for instance segmentation
         :param cutoff:
@@ -106,14 +107,14 @@ class Network:
                 reconstructed_mask = reconstructed_mask + img_
             output = reconstructed_mask
         lab_img = label(output > cutoff, connectivity=1)
-        if use_dilation:
+        if HyperParams.get().post_dilation_iter > 0:
             for i in range(1, lab_img.max() + 1):
-                lab_img = np.maximum(lab_img, ndimage.morphology.binary_dilation(lab_img == i, iterations=2) * i)
+                lab_img = np.maximum(lab_img, ndimage.morphology.binary_dilation(lab_img == i, iterations=HyperParams.get().post_dilation_iter) * i)
         instances = []
         for i in range(1, lab_img.max() + 1):
             instances.append(lab_img == i)
 
-        if fill_holes:
+        if HyperParams.get().post_fill_holes:
             instances = [ndimage.morphology.binary_fill_holes(i) for i in instances]
         return instances
 
@@ -181,7 +182,7 @@ class Network:
     def get_loss(self):
         pass
 
-    def get_optimize_op(self, global_step, learning_rate, decay_steps=300, decay_rate=0.33):
+    def get_optimize_op(self, global_step, learning_rate):
         """
         Need to override if you want to use different optimization policy.
         :param learning_rate:
@@ -189,7 +190,9 @@ class Network:
         :return: (learning_rate, optimizer) tuple
         """
         learning_rate = tf.train.exponential_decay(learning_rate, global_step,
-                                                   decay_steps=decay_steps, decay_rate=decay_rate, staircase=True)
+                                                   decay_steps=HyperParams.get().opt_decay_steps,
+                                                   decay_rate=HyperParams.get().opt_decay_rate,
+                                                   staircase=True)
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         with tf.control_dependencies(update_ops):
             # optimizer = tf.train.RMSPropOptimizer(learning_rate, decay=0.9, momentum=0.0)
