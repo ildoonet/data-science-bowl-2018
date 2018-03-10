@@ -1,6 +1,8 @@
 import logging
 
 import os
+from multiprocessing.pool import Pool
+
 import cv2
 import datetime
 import fire
@@ -9,7 +11,7 @@ import tensorflow as tf
 from tqdm import tqdm
 
 from checkmate.checkmate import BestCheckpointSaver, get_best_checkpoint
-from data_feeder import CellImageData
+from data_feeder import batch_to_multi_masks
 from network import Network
 from network_basic import NetworkBasic
 from network_unet import NetworkUnet
@@ -96,7 +98,7 @@ class Trainer:
 
                     if (e + 1) % valid_interval == 0:
                         avg = []
-                        metrics = []
+                        # metrics = []
                         for _ in range(5):
                             for dp_valid in ds_valid.get_data():
                                 loss_val = sess.run(
@@ -115,15 +117,20 @@ class Trainer:
                         cnt_tps = np.array((len(thr_list)), dtype=np.int32),
                         cnt_fps = np.array((len(thr_list)), dtype=np.int32)
                         cnt_fns = np.array((len(thr_list)), dtype=np.int32)
+                        pool_args = []
                         for idx, dp_valid in tqdm(enumerate(ds_valid_full.get_data()), 'validate using the iou metric'):
                             image = dp_valid[0]
-                            label = CellImageData.batch_to_multi_masks(dp_valid[2], transpose=False)
                             instances = network.inference(sess, image)
+                            pool_args.append((thr_list, instances, dp_valid[2]))
 
-                            cnt_tp, cnt_fp, cnt_fn = get_multiple_metric(thr_list, instances, label)
-                            cnt_tps = cnt_tps + cnt_tp
-                            cnt_fps = cnt_fps + cnt_fp
-                            cnt_fns = cnt_fns + cnt_fn
+                        pool = Pool(processes=32)
+                        cnt_results = pool.map(do_get_multiple_metric, pool_args)
+                        pool.close()
+                        pool.join()
+                        for cnt_result in cnt_results:
+                            cnt_tps = cnt_tps + cnt_result[0]
+                            cnt_fps = cnt_fps + cnt_result[1]
+                            cnt_fns = cnt_fns + cnt_result[2]
 
                         ious = np.divide(cnt_tps, cnt_tps + cnt_fps + cnt_fns)
                         mIou = np.mean(ious)
@@ -184,6 +191,11 @@ class Trainer:
                 kaggle_submit.save()
         logger.info('done. best_loss_val=%.4f best_mIOU=%.4f name=%s' % (best_loss_val, best_miou_val, name))
         return best_miou_val
+
+def do_get_multiple_metric(args):
+    thr_list, instances, multi_masks_batch = args
+    label = batch_to_multi_masks(multi_masks_batch, transpose=False)
+    return get_multiple_metric(thr_list, instances, label)
 
 
 if __name__ == '__main__':

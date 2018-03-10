@@ -10,7 +10,7 @@ from tensorpack.dataflow.parallel import PrefetchData
 from data_augmentation import data_to_image, random_affine, random_color, random_scaling, resize_shortedge_if_small, \
     random_crop, random_flip_lr, random_flip_ud, erosion_mask
 from data_feeder import CellImageData, get_default_dataflow, master_dir_train, get_default_dataflow_batch, \
-    CellImageDataManagerTest, master_dir_test, CellImageDataManagerTrain
+    CellImageDataManagerTest, master_dir_test, CellImageDataManagerTrain, batch_to_multi_masks
 
 
 class DataFeederTest(unittest.TestCase):
@@ -57,7 +57,7 @@ class DataFeederTest(unittest.TestCase):
         )
         self.assertEqual(np.max(d.single_mask()), 1)
 
-        origin_masks = CellImageData.batch_to_multi_masks(d.multi_masks_batch())
+        origin_masks = batch_to_multi_masks(d.multi_masks_batch())
         self.assertTrue(d.multi_masks().dtype == origin_masks.dtype)
         self.assertEqual(d.multi_masks().shape, origin_masks.shape)
         self.assertTrue(np.array_equal(d.multi_masks(), origin_masks))
