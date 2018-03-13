@@ -5,7 +5,7 @@ from tensorflow.contrib import slim
 from data_augmentation import data_to_segment_input, \
     data_to_image, random_flip_lr, random_flip_ud, random_scaling, random_affine, \
     random_color, data_to_normalize1, data_to_elastic_transform_wrapper, resize_shortedge_if_small, random_crop, \
-    center_crop, random_color2, erosion_mask
+    center_crop, random_color2, erosion_mask, resize_shortedge
 from data_feeder import CellImageDataManagerTrain, CellImageDataManagerValid, CellImageDataManagerTest
 from tensorpack.dataflow.common import BatchData, MapData, MapDataComponent
 from tensorpack.dataflow.parallel import PrefetchData
@@ -175,18 +175,21 @@ class NetworkUnetValid(NetworkBasic):
         # ds_valid = PrefetchData(ds_valid, 20, 24)
 
         ds_valid2 = CellImageDataManagerValid()
-        ds_valid2 = MapDataComponent(ds_valid2, lambda x: resize_shortedge_if_small(x, self.img_size))
+        # ds_valid2 = MapDataComponent(ds_valid2, lambda x: resize_shortedge_if_small(x, self.img_size))
+        ds_valid2 = MapDataComponent(ds_valid2, lambda x: resize_shortedge(x, self.img_size))
         ds_valid2 = MapData(ds_valid2, lambda x: data_to_segment_input(x, not self.is_color))
         ds_valid2 = MapDataComponent(ds_valid2, data_to_normalize1)
 
         ds_test = CellImageDataManagerTest()
-        ds_test = MapDataComponent(ds_test, lambda x: resize_shortedge_if_small(x, self.img_size))
+        # ds_test = MapDataComponent(ds_test, lambda x: resize_shortedge_if_small(x, self.img_size))
+        ds_test = MapDataComponent(ds_test, lambda x: resize_shortedge(x, self.img_size))
         ds_test = MapData(ds_test, lambda x: data_to_image(x, not self.is_color))
         ds_test = MapDataComponent(ds_test, data_to_normalize1)
 
         return ds_train, ds_valid, ds_valid2, ds_test
 
     def inference(self, tf_sess, image):
+        # TODO : Mirror Padding?
         cascades, windows = Network.sliding_window(image, self.img_size, 0.5)
 
         outputs = tf_sess.run(self.get_output(), feed_dict={

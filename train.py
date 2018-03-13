@@ -25,13 +25,14 @@ ch = logging.StreamHandler()
 ch.setLevel(logging.DEBUG)
 formatter = logging.Formatter('[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s')
 ch.setFormatter(formatter)
+logger.handlers = []
 logger.addHandler(ch)
 
 
 class Trainer:
-    def run(self, model, epoch=100,
-            batchsize=32, learning_rate=0.0001,
-            valid_interval=2, tag='', show_train=0, show_valid=0, show_test=0, save_result=True, checkpoint='',
+    def run(self, model, epoch=500,
+            batchsize=16, learning_rate=0.0005,
+            valid_interval=5, tag='', show_train=0, show_valid=0, show_test=0, save_result=True, checkpoint='',
             **kwargs):
         if model == 'basic':
             network = NetworkBasic(batchsize, unet_weight=True)
@@ -61,7 +62,7 @@ class Trainer:
         best_loss_val = 999999
         best_miou_val = 0.0
         name = '%s_%s_lr=%.4f_epoch=%d_bs=%d' % (
-            tag if tag else datetime.datetime.now().strftime("%y%m%dT%H%M"),
+            tag if tag else datetime.datetime.now().strftime("%y%m%dT%H%M%f"),
             model,
             learning_rate,
             epoch,
@@ -75,6 +76,7 @@ class Trainer:
         )
         saver = tf.train.Saver()
         config = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)
+        m_epoch = 0
         with tf.Session(config=config) as sess:
             logger.info('training started+')
             if not checkpoint:
@@ -84,21 +86,37 @@ class Trainer:
                 logger.info('restore from checkpoint, %s' % checkpoint)
 
             try:
+                losses = []
                 for e in range(epoch):
+                    loss_val_avg = []
+                    train_cnt = 0
                     for dp_train in ds_train.get_data():
                         _, step, lr, loss_val = sess.run(
                             [train_op, global_step, learning_rate_v, net_loss],
                             feed_dict=network.get_feeddict(dp_train, True)
                         )
+                        loss_val_avg.append(loss_val)
+                        train_cnt += 1
                         # for debug
                         # cv2.imshow('train', Network.visualize(dp_train[0][0], dp_train[2][0], None, dp_train[3][0], 'norm1'))
                         # cv2.waitKey(0)
 
-                    logger.info('training %d epoch %d step, lr=%.8f loss=%.4f' % (e+1, step, lr, loss_val))
+                    loss_val_avg = sum(loss_val_avg) / len(loss_val_avg)
+                    logger.info('training %d epoch %d step, lr=%.8f loss=%.4f train_iter=%d' % (e+1, step, lr, loss_val_avg, train_cnt))
+                    losses.append(loss_val)
 
-                    if (e + 1) % valid_interval == 0:
+                    if len(losses) > 100 and losses[len(losses) - 100] * 0.98 < loss_val_avg:
+                        logger.info('not improved, stop at %d' % e)
+                        break
+
+                    # early rejection
+                    if (e == 50 and loss_val > 0.5) or (e == 200 and loss_val > 0.2):
+                        logger.info('not improved training loss, stop at %d' % e)
+                        break
+
+                    m_epoch = e
+                    if loss_val < 0.20 and (e + 1) % valid_interval == 0:
                         avg = []
-                        # metrics = []
                         for _ in range(5):
                             for dp_valid in ds_valid.get_data():
                                 loss_val = sess.run(
@@ -112,7 +130,7 @@ class Trainer:
                         if best_loss_val > avg:
                             best_loss_val = avg
 
-                    if e > 10 and (e + 1) % 5 == 0:
+                    if loss_val < 0.20 and e > 10 and (e + 1) % 5 == 0:
                         thr_list = np.arange(0.5, 1.0, 0.05)
                         cnt_tps = np.array((len(thr_list)), dtype=np.int32),
                         cnt_fps = np.array((len(thr_list)), dtype=np.int32)
@@ -138,6 +156,7 @@ class Trainer:
                         if best_miou_val < mIou:
                             best_miou_val = mIou
                         best_ckpt_saver.handle(mIou, sess, global_step)  # save & keep best model
+
             except KeyboardInterrupt:
                 logger.info('interrupted. stop training, start to validate.')
 
@@ -170,6 +189,7 @@ class Trainer:
                 cv2.waitKey(0)
 
             # show sample in test set
+            logger.info('saving...')
             if save_result:
                 kaggle_submit = KaggleSubmission(name)
                 for idx, dp_test in enumerate(ds_test.get_data()):
@@ -189,8 +209,9 @@ class Trainer:
                     kaggle_submit.save_image(test_id, img_vis)
                     kaggle_submit.add_result(test_id, instances)
                 kaggle_submit.save()
-        logger.info('done. best_loss_val=%.4f best_mIOU=%.4f name=%s' % (best_loss_val, best_miou_val, name))
-        return best_miou_val
+        logger.info('done. epoch=%d best_loss_val=%.4f best_mIOU=%.4f name=%s' % (m_epoch, best_loss_val, best_miou_val, name))
+        return best_miou_val, name
+
 
 def do_get_multiple_metric(args):
     thr_list, instances, multi_masks_batch = args
