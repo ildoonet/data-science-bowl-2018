@@ -3,6 +3,7 @@ import logging
 import os
 from multiprocessing.pool import Pool
 
+import sys
 import cv2
 import datetime
 import fire
@@ -12,6 +13,7 @@ from tqdm import tqdm
 
 from checkmate.checkmate import BestCheckpointSaver, get_best_checkpoint
 from data_feeder import batch_to_multi_masks
+from hyperparams import HyperParams
 from network import Network
 from network_basic import NetworkBasic
 from network_unet import NetworkUnet
@@ -21,7 +23,7 @@ from submission import KaggleSubmission, get_multiple_metric
 
 logger = logging.getLogger('train')
 logger.setLevel(logging.DEBUG)
-ch = logging.StreamHandler()
+ch = logging.StreamHandler(sys.stdout)
 ch.setLevel(logging.DEBUG)
 formatter = logging.Formatter('[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s')
 ch.setFormatter(formatter)
@@ -30,9 +32,9 @@ logger.addHandler(ch)
 
 
 class Trainer:
-    def run(self, model, epoch=500,
-            batchsize=16, learning_rate=0.0005,
-            valid_interval=5, tag='', show_train=0, show_valid=0, show_test=0, save_result=True, checkpoint='',
+    def run(self, model, epoch=250,
+            batchsize=16, learning_rate=0.0005, early_rejection=False,
+            valid_interval=10, tag='', show_train=0, show_valid=0, show_test=0, save_result=True, checkpoint='',
             **kwargs):
         if model == 'basic':
             network = NetworkBasic(batchsize, unet_weight=True)
@@ -105,12 +107,12 @@ class Trainer:
                     logger.info('training %d epoch %d step, lr=%.8f loss=%.4f train_iter=%d' % (e+1, step, lr, loss_val_avg, train_cnt))
                     losses.append(loss_val)
 
-                    if len(losses) > 100 and losses[len(losses) - 100] * 0.98 < loss_val_avg:
+                    if early_rejection and len(losses) > 100 and losses[len(losses) - 100] * 1.05 < loss_val_avg:
                         logger.info('not improved, stop at %d' % e)
                         break
 
                     # early rejection
-                    if (e == 50 and loss_val > 0.5) or (e == 200 and loss_val > 0.2):
+                    if early_rejection and ((e == 50 and loss_val > 0.5) or (e == 200 and loss_val > 0.2)):
                         logger.info('not improved training loss, stop at %d' % e)
                         break
 
@@ -130,7 +132,7 @@ class Trainer:
                         if best_loss_val > avg:
                             best_loss_val = avg
 
-                    if loss_val < 0.20 and e > 10 and (e + 1) % 5 == 0:
+                    if loss_val < 0.20 and e > 50 and (e + 1) % valid_interval == 0:
                         thr_list = np.arange(0.5, 1.0, 0.05)
                         cnt_tps = np.array((len(thr_list)), dtype=np.int32),
                         cnt_fps = np.array((len(thr_list)), dtype=np.int32)
@@ -157,6 +159,11 @@ class Trainer:
                             best_miou_val = mIou
                         best_ckpt_saver.handle(mIou, sess, global_step)  # save & keep best model
 
+                        # early rejection by mIou
+                        if early_rejection and e > 50 and best_miou_val < 0.15:
+                            break
+                        if early_rejection and e > 100 and best_miou_val < 0.25:
+                            break
             except KeyboardInterrupt:
                 logger.info('interrupted. stop training, start to validate.')
 
@@ -178,20 +185,22 @@ class Trainer:
                 cv2.waitKey(0)
 
             # show sample in valid set : show_valid > 0
+            kaggle_submit = KaggleSubmission(name)
             logging.info('Start to test on validation set.... (may take a while)')
             for idx, dp_valid in enumerate(ds_valid_full.get_data()):
-                if idx >= show_valid:
-                    break
                 image = dp_valid[0]
                 instances = network.inference(sess, image)
 
-                cv2.imshow('valid', Network.visualize(image, dp_valid[2], instances, None))
-                cv2.waitKey(0)
+                img_vis = Network.visualize(image, dp_valid[1], instances, None)
+                kaggle_submit.save_valid_image(str(idx), img_vis)
+
+                if idx < show_valid:
+                    cv2.imshow('valid', Network.visualize(image, dp_valid[2], instances, None))
+                    cv2.waitKey(0)
 
             # show sample in test set
             logger.info('saving...')
             if save_result:
-                kaggle_submit = KaggleSubmission(name)
                 for idx, dp_test in enumerate(ds_test.get_data()):
                     image = dp_test[0]
                     test_id = dp_test[1][0]
@@ -209,7 +218,7 @@ class Trainer:
                     kaggle_submit.save_image(test_id, img_vis)
                     kaggle_submit.add_result(test_id, instances)
                 kaggle_submit.save()
-        logger.info('done. epoch=%d best_loss_val=%.4f best_mIOU=%.4f name=%s' % (m_epoch, best_loss_val, best_miou_val, name))
+        logger.info('done. epoch=%d best_loss_val=%.4f best_mIOU=%.4f name= %s' % (m_epoch, best_loss_val, best_miou_val, name))
         return best_miou_val, name
 
 
@@ -221,3 +230,4 @@ def do_get_multiple_metric(args):
 
 if __name__ == '__main__':
     fire.Fire(Trainer)
+    print(HyperParams.get().__dict__)

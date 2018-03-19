@@ -1,6 +1,8 @@
 import unittest
 import numpy as np
+import cv2
 
+from data_feeder import CellImageData, master_dir_train
 from network import Network
 from network_unet_valid import get_net_input_size
 
@@ -84,3 +86,16 @@ class TestNetwork(unittest.TestCase):
         # as in the original unet paper
         n = get_net_input_size(388, 4)
         self.assertEqual(n, 572)
+
+    def test_watershed(self):
+        d = CellImageData('d7db360fabfce9828559a21f6bffff589ae868e0dc6101d7c1212de34a25e3cb', path=master_dir_train)
+        prev_mask_size = len(d.masks)
+        masks = Network.watershed_merged_output(d.masks)
+
+        # for visual inspection
+        cv2.imshow('img', d.img)
+        cv2.imshow('mask', Network.visualize_segments(d.masks, d.img))
+        cv2.imshow('watershed', Network.visualize_segments(masks, d.img))
+        cv2.waitKeyEx(0)
+
+        self.assertEqual(len(masks), prev_mask_size)

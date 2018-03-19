@@ -1,4 +1,5 @@
 import random
+from collections import defaultdict
 
 import numpy as np
 import os
@@ -112,6 +113,7 @@ class CellImageDataManagerTrain(CellImageDataManager):
     def __init__(self):
         super().__init__(
             master_dir_train,
+            # list(next(os.walk(master_dir_train))[1])[-576:],
             list(next(os.walk(master_dir_train))[1])[:576],
             True
         )
@@ -122,6 +124,7 @@ class CellImageDataManagerValid(CellImageDataManager):
     def __init__(self):
         super().__init__(
             master_dir_train,
+            # list(next(os.walk(master_dir_train))[1])[:-576],
             list(next(os.walk(master_dir_train))[1])[576:],
             False
         )
@@ -134,6 +137,39 @@ class CellImageDataManagerTest(CellImageDataManager):
             list(next(os.walk(master_dir_test))[1]),
             False
         )
+
+
+class MetaData:
+    # Here will be the instance stored.
+    __instance = None
+
+    @staticmethod
+    def get():
+        """ Static access method. """
+        if MetaData.__instance is None:
+            MetaData()
+        return MetaData.__instance
+
+    @staticmethod
+    def read_cluster(path):
+        cluster = {}
+        with open(path, 'r') as f:
+            for idx, line in enumerate(f.readlines()):
+                if idx == 0:
+                    continue
+                elms = line.split(',')
+                cluster[elms[0]] = int(elms[1])
+        return cluster
+
+    def __init__(self):
+        """ Virtually private constructor. """
+        if MetaData.__instance is not None:
+            raise Exception("This class is a singleton!")
+        else:
+            MetaData.__instance = self
+
+        self.train_cluster = MetaData.read_cluster('./metadata/share_train_df.csv')
+        self.test_cluster = MetaData.read_cluster('./metadata/share_test_df.csv')
 
 
 def get_default_dataflow():
@@ -161,3 +197,27 @@ def batch_to_multi_masks(multi_masks_batch, transpose=True):
         return a[..., 0].transpose([1, 2, 0])
     else:
         return a[..., 0]
+
+
+if __name__ == '__main__':
+    split_idx = 576
+    print('total size=', len(list(next(os.walk(master_dir_train))[1])))
+    train_set = list(next(os.walk(master_dir_train))[1])[-576:]
+    valid_set = list(next(os.walk(master_dir_train))[1])[:-576]
+    test_set = list(next(os.walk(master_dir_test))[1])
+
+    def histogram(set, cluster_info):
+        hist = defaultdict(lambda: 0)
+        for data in set:
+            # print(train_data)
+            try:
+                cluster_id = cluster_info[data]
+            except:
+                print(data)
+                cluster_id = 1
+            hist[cluster_id] += 1
+        print(hist)
+
+    histogram(train_set, MetaData.get().train_cluster)
+    histogram(valid_set, MetaData.get().train_cluster)
+    histogram(test_set, MetaData.get().test_cluster)

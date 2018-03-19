@@ -31,6 +31,8 @@ class NetworkBasic(Network):
         self.loss = None
         self.unet_weight = unet_weight
 
+
+
     def get_placeholders(self):
         return self.input_batch, self.mask_batch, self.unused
 
@@ -213,9 +215,7 @@ class NetworkBasic(Network):
 
         # sementation to instance-aware segmentations.
         instances = Network.parse_merged_output(
-            merged_output, cutoff=0.5, use_separator=False,
-            use_dilation=self.unet_weight,
-            fill_holes=True
+            merged_output, cutoff=0.5, use_separator=False
         )
 
         return instances

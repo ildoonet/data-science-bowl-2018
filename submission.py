@@ -1,8 +1,25 @@
 import os
 import cv2
+import logging
+import json
 import numpy as np
 import pandas as pd
 import time
+
+import sys
+
+from hyperparams import HyperParams
+from kaggle.api.kaggle_api_extended import KaggleApi
+
+
+logger = logging.getLogger('submission')
+logger.setLevel(logging.DEBUG)
+ch = logging.StreamHandler(sys.stdout)
+ch.setLevel(logging.DEBUG)
+formatter = logging.Formatter('[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s')
+ch.setFormatter(formatter)
+logger.handlers = []
+logger.addHandler(ch)
 
 
 def rle_encoding(x):
@@ -25,7 +42,8 @@ def rle_encoding(x):
 
 
 class KaggleSubmission:
-    BASEPATH = os.path.dirname(__file__)+"/submissions"
+    BASEPATH = os.path.dirname(os.path.realpath(__file__)) + "/submissions"
+    CNAME = 'data-science-bowl-2018'
 
     def __init__(self, name):
         self.name = name
@@ -34,8 +52,12 @@ class KaggleSubmission:
 
         try:
             os.mkdir(os.path.join(KaggleSubmission.BASEPATH, self.name))
+            os.mkdir(os.path.join(KaggleSubmission.BASEPATH, self.name, 'valid'))
         except:
             pass
+
+    def save_valid_image(self, idx, image):
+        cv2.imwrite(os.path.join(KaggleSubmission.BASEPATH, self.name, 'valid', idx + '.jpg'), image)
 
     def save_image(self, idx, image):
         cv2.imwrite(os.path.join(KaggleSubmission.BASEPATH, self.name, idx + '.jpg'), image)
@@ -56,15 +78,56 @@ class KaggleSubmission:
             self.test_ids.append(idx)
             self.rles.append(rles)
 
+    def get_filepath(self):
+        filepath = os.path.join(KaggleSubmission.BASEPATH, self.name, 'submission.csv')
+        return filepath
+
+    def get_confpath(self):
+        filepath = os.path.join(KaggleSubmission.BASEPATH, self.name, 'config.json')
+        return filepath
+
     def save(self):
         sub = pd.DataFrame()
         sub['ImageId'] = self.test_ids
         sub['EncodedPixels'] = pd.Series(self.rles).apply(lambda x: ' '.join(str(y) for y in x))
 
-        filepath = os.path.join(KaggleSubmission.BASEPATH, self.name, 'submission.csv')
+        filepath = self.get_filepath()
         f = open(filepath, 'w')
         f.close()
         sub.to_csv(filepath, index=False)
+        logger.info('%s saved at %s.' % (self.name, filepath))
+
+        filepath = self.get_confpath()
+        f = open(filepath, 'w')
+        a = json.dumps(HyperParams.get().__dict__, indent=4)
+        f.write(a)
+        f.close()
+
+    def submit_result(self, submit_msg='KakaoAutoML'):
+        logger.info('kaggle.submit_result: initialization')
+        api_client = KaggleApi()
+        api_client.authenticate()
+        submissions = api_client.competitionSubmissions(KaggleSubmission.CNAME)
+        last_idx = submissions[0].ref if len(submissions) > 0 else -1
+
+        # submit
+        logger.info('kaggle.submit_result: trying to submit @ %s' % self.get_filepath())
+        submit_result = api_client.competitionSubmit(self.get_filepath(), submit_msg, KaggleSubmission.CNAME)
+        logger.info('kaggle.submit_result: submitted!')
+
+        # wait for the updated LB
+        wait_interval = 10   # in seconds
+        for _ in range(60 // wait_interval * 5):
+            submissions = api_client.competitionSubmissions(KaggleSubmission.CNAME)
+            if len(submissions) == 0:
+                continue
+            if submissions[0].status == 'complete' and submissions[0].ref != last_idx:
+                # updated
+                logger.info('kaggle.submit_result: LB Score Updated!')
+                return submit_result, submissions[0]
+            time.sleep(wait_interval)
+        logger.info('kaggle.submit_result: LB Score NOT Updated!')
+        return submit_result, None
 
 
 def get_iou1(a, b):

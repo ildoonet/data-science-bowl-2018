@@ -6,7 +6,7 @@ from network_basic import NetworkBasic
 
 
 class NetworkUnet(NetworkBasic):
-    def __init__(self, batchsize, unet_weight, ):
+    def __init__(self, batchsize, unet_weight):
         super(NetworkUnet, self).__init__(batchsize=batchsize, unet_weight=unet_weight)
 
     @staticmethod

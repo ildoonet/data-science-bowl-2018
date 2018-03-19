@@ -57,8 +57,10 @@ class TestAugmentation(unittest.TestCase):
         self.assertEqual(d.image(is_gray=False).shape[0], 224)
 
     def test_elastic_transformation(self):
-        image, masks = data_to_elastic_transform(self.d, self.d.img.shape[1] * 2, self.d.img.shape[1] * 0.08, self.d.img.shape[1] \
-                                      * 0.08)
+        image, masks = data_to_elastic_transform(
+            self.d, self.d.img.shape[1] * 2,
+            self.d.img.shape[1] * 0.08, self.d.img.shape[1] * 0.08
+        )
 
         self.assertEqual(self.d.img.shape[0], image.shape[0])
         self.assertEqual(self.d.masks[0].shape[0], masks[0].shape[0])
@@ -73,7 +75,6 @@ class TestAugmentation(unittest.TestCase):
         # cv2.waitKeyEx(0)
 
     def test_random_color2(self):
-
         for _ in range(5):
             d = random_color2(self.d)
             cv2.imshow('random_color2', d.img)

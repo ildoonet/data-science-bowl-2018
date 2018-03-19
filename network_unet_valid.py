@@ -64,14 +64,14 @@ class NetworkUnetValid(NetworkBasic):
             'is_training': self.is_training,
             'center': True,
             'scale': True,
-            'decay': 0.9,
-            'epsilon': 0.001,
+            'decay': HyperParams.get().net_bn_decay,
+            'epsilon': HyperParams.get().net_bn_epsilon,
             'fused': True,
             'zero_debias_moving_mean': True
         }
 
         dropout_params = {
-            'keep_prob': 0.9,
+            'keep_prob': HyperParams.get().net_dropout_keep,
             'is_training': self.is_training,
         }
 
@@ -80,7 +80,8 @@ class NetworkUnetValid(NetworkBasic):
             'weights_initializer': weight_init,
             'normalizer_fn': slim.batch_norm,
             'normalizer_params': batch_norm_params,
-            'activation_fn': tf.nn.elu
+            'activation_fn': tf.nn.elu,
+            'weights_regularizer': slim.l2_regularizer(0.001)
         }
 
         net = self.input_batch
@@ -98,7 +99,7 @@ class NetworkUnetValid(NetworkBasic):
         features = []
         with slim.arg_scope([slim.convolution, slim.conv2d_transpose], **conv_args):
             with slim.arg_scope([slim.dropout], **dropout_params):
-                base_feature_size = 32
+                base_feature_size = HyperParams.get().unet_base_feature
                 max_feature_size = base_feature_size * (2 ** self.num_block)
 
                 # down sampling steps
@@ -143,13 +144,13 @@ class NetworkUnetValid(NetworkBasic):
             multi_class_labels=self.mask_batch,
             logits=self.logit,
             weights=w
-        )
+        ) + tf.reduce_mean(tf.losses.get_regularization_losses())
         return net
 
     def get_input_flow(self):
         ds_train = CellImageDataManagerTrain()
         # Augmentation :
-        ds_train = MapDataComponent(ds_train, random_affine)
+        # ds_train = MapDataComponent(ds_train, random_affine)
         ds_train = MapDataComponent(ds_train, random_color)
         ds_train = MapDataComponent(ds_train, random_scaling)
         ds_train = MapDataComponent(ds_train, lambda x: resize_shortedge_if_small(x, self.img_size))
@@ -170,13 +171,13 @@ class NetworkUnetValid(NetworkBasic):
         if self.unet_weight:
             ds_valid = MapDataComponent(ds_valid, erosion_mask)
         ds_valid = MapData(ds_valid, lambda x: data_to_segment_input(x, not self.is_color, self.unet_weight))
+        ds_valid = PrefetchData(ds_valid, 20, 24)
         ds_valid = BatchData(ds_valid, self.batchsize, remainder=True)
         ds_valid = MapDataComponent(ds_valid, data_to_normalize1)
-        # ds_valid = PrefetchData(ds_valid, 20, 24)
 
         ds_valid2 = CellImageDataManagerValid()
-        # ds_valid2 = MapDataComponent(ds_valid2, lambda x: resize_shortedge_if_small(x, self.img_size))
-        ds_valid2 = MapDataComponent(ds_valid2, lambda x: resize_shortedge(x, self.img_size))
+        ds_valid2 = MapDataComponent(ds_valid2, lambda x: resize_shortedge_if_small(x, self.img_size))
+        # ds_valid2 = MapDataComponent(ds_valid2, lambda x: resize_shortedge(x, self.img_size))
         ds_valid2 = MapData(ds_valid2, lambda x: data_to_segment_input(x, not self.is_color))
         ds_valid2 = MapDataComponent(ds_valid2, data_to_normalize1)
 
@@ -207,5 +208,7 @@ class NetworkUnetValid(NetworkBasic):
         instances = Network.parse_merged_output(
             merged_output, cutoff=0.5, use_separator=False
         )
+
+        # instances = Network.watershed_merged_output(instances)
 
         return instances

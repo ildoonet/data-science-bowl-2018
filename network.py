@@ -119,6 +119,43 @@ class Network:
         return instances
 
     @staticmethod
+    def watershed_merged_output(instances):
+        # ref : https://docs.opencv.org/3.3.1/d3/db4/tutorial_py_watershed.html
+        new_instances = []
+        for idx, instance in enumerate(instances):
+            if idx == 0:
+                continue
+
+            # noise removal
+            kernel = np.ones((3, 3), np.uint8)
+            opening = cv2.morphologyEx(instance.astype(np.uint8), cv2.MORPH_OPEN, kernel, iterations=8)
+            # sure background area
+            sure_bg = cv2.dilate(opening, kernel, iterations=3)
+            # Finding sure foreground area
+            dist_transform = cv2.distanceTransform(opening, cv2.DIST_L2, 5)
+            ret, sure_fg = cv2.threshold(dist_transform, 0.7 * dist_transform.max(), 255, 0)
+            # Finding unknown region
+            sure_fg = np.uint8(sure_fg)
+            unknown = cv2.subtract(sure_bg, sure_fg)
+
+            # Marker labelling
+            ret, markers = cv2.connectedComponents(sure_fg)
+            # Add one to all labels so that sure background is not 0, but 1
+            markers = markers + 1
+            # Now, mark the region of unknown with zero
+            markers[unknown == 1] = 0
+
+            markers = cv2.watershed(cv2.cvtColor(instance.astype(np.uint8), cv2.COLOR_GRAY2BGR), markers)
+
+            for idx in range(1, markers.max() + 1):
+                instance = (markers == idx)
+                # instance = ndimage.morphology.binary_fill_holes(markers == idx)
+                instance = instance.astype(np.uint8)
+                # instance = cv2.dilate(instance, kernel, iterations=2)
+                new_instances.append(instance)
+        return new_instances
+
+    @staticmethod
     def resize_instances(instances, target_size):
         h, w = target_size
 
@@ -195,7 +232,7 @@ class Network:
                                                    staircase=True)
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         with tf.control_dependencies(update_ops):
-            # optimizer = tf.train.RMSPropOptimizer(learning_rate, decay=0.9, momentum=0.0)
+            # optimizer = tf.train.RMSPropOptimizer(learning_rate, decay=0.9, momentum=0.9)
             optimizer = tf.train.AdamOptimizer(learning_rate, epsilon=1e-8)
             optimize_op = optimizer.minimize(self.get_loss(), global_step, colocate_gradients_with_ops=True)
         return learning_rate, optimize_op
