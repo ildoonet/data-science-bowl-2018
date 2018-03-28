@@ -8,6 +8,7 @@ from scipy import ndimage
 from skimage.morphology import label
 
 from colors import get_colors
+from data_augmentation import resize_shortedge_if_small
 from hyperparams import HyperParams
 from data_feeder import batch_to_multi_masks
 from separator import separation
@@ -15,7 +16,7 @@ from separator import separation
 
 class Network:
     @staticmethod
-    def visualize(image, label, segments, weights, norm='norm01'):
+    def visualize(image, label, segments, weights, norm='norm1'):
         """
         For Visualization
         TODO
@@ -88,7 +89,7 @@ class Network:
         return cascades, windows
 
     @staticmethod
-    def parse_merged_output(output, cutoff=0.5, use_separator=True):
+    def parse_merged_output(output, cutoff=0.5, use_separator=False, cutoff_instance=0.0):
         """
         Split 1-channel merged output for instance segmentation
         :param cutoff:
@@ -113,6 +114,14 @@ class Network:
         instances = []
         for i in range(1, lab_img.max() + 1):
             instances.append(lab_img == i)
+
+        if cutoff_instance > 0.0:
+            filtered_instances = []
+            for instance in instances:
+                if np.max(instance * output) < cutoff_instance:
+                    continue
+                filtered_instances.append(instance)
+            instances = filtered_instances
 
         if HyperParams.get().post_fill_holes:
             instances = [ndimage.morphology.binary_fill_holes(i) for i in instances]
@@ -162,16 +171,20 @@ class Network:
         def resize_instance(instance):
             shp = instance.shape
             instance = (instance * 255).astype(np.uint8)
-            instance = cv2.resize(instance, (w, h))
+            instance = cv2.resize(instance, (w, h), interpolation=cv2.INTER_AREA)
             instance = instance >> 7
-            instance = instance[..., np.newaxis]
-            assert len(shp[:2]) == len(instance.shape[:2])
+            if len(shp) > len(instance.shape):
+                instance = instance[..., np.newaxis]
+            assert len(shp) == len(instance.shape)
             return instance
 
         instances = [resize_instance(instance) for instance in instances]
 
         # make sure that there are no overlappings
-        lab_img = np.zeros((h, w, 1), dtype=np.int32)
+        if len(instances[0].shape) == 2:
+            lab_img = np.zeros((h, w), dtype=np.int32)
+        else:
+            lab_img = np.zeros((h, w, 1), dtype=np.int32)
         for i, instance in enumerate(instances):
             lab_img = np.maximum(lab_img, instance * (i+1))
         new_instances = []
@@ -217,6 +230,10 @@ class Network:
 
     @abc.abstractmethod
     def get_loss(self):
+        pass
+
+    @abc.abstractmethod
+    def preprocess(self, x):
         pass
 
     def get_optimize_op(self, global_step, learning_rate):

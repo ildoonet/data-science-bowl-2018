@@ -1,4 +1,6 @@
 import os
+from collections import OrderedDict
+
 import cv2
 import logging
 import json
@@ -8,6 +10,7 @@ import time
 
 import sys
 
+from data_feeder import CellImageDataManagerTest, CellImageDataManagerValid
 from hyperparams import HyperParams
 from kaggle.api.kaggle_api_extended import KaggleApi
 
@@ -39,95 +42,6 @@ def rle_encoding(x):
         cnt += 1
         prev = b
     return rle, cnt
-
-
-class KaggleSubmission:
-    BASEPATH = os.path.dirname(os.path.realpath(__file__)) + "/submissions"
-    CNAME = 'data-science-bowl-2018'
-
-    def __init__(self, name):
-        self.name = name
-        self.test_ids = []
-        self.rles = []
-
-        try:
-            os.mkdir(os.path.join(KaggleSubmission.BASEPATH, self.name))
-            os.mkdir(os.path.join(KaggleSubmission.BASEPATH, self.name, 'valid'))
-        except:
-            pass
-
-    def save_valid_image(self, idx, image):
-        cv2.imwrite(os.path.join(KaggleSubmission.BASEPATH, self.name, 'valid', idx + '.jpg'), image)
-
-    def save_image(self, idx, image):
-        cv2.imwrite(os.path.join(KaggleSubmission.BASEPATH, self.name, idx + '.jpg'), image)
-
-    def add_result(self, idx, instances):
-        """
-
-        :param idx: test sample id
-        :param instances: list of (h, w, 1) numpy containing
-        """
-        for instance in instances:
-            rles, cnt = rle_encoding(instance)
-
-            if cnt < 3:
-                continue
-            assert len(rles) % 2 == 0
-
-            self.test_ids.append(idx)
-            self.rles.append(rles)
-
-    def get_filepath(self):
-        filepath = os.path.join(KaggleSubmission.BASEPATH, self.name, 'submission.csv')
-        return filepath
-
-    def get_confpath(self):
-        filepath = os.path.join(KaggleSubmission.BASEPATH, self.name, 'config.json')
-        return filepath
-
-    def save(self):
-        sub = pd.DataFrame()
-        sub['ImageId'] = self.test_ids
-        sub['EncodedPixels'] = pd.Series(self.rles).apply(lambda x: ' '.join(str(y) for y in x))
-
-        filepath = self.get_filepath()
-        f = open(filepath, 'w')
-        f.close()
-        sub.to_csv(filepath, index=False)
-        logger.info('%s saved at %s.' % (self.name, filepath))
-
-        filepath = self.get_confpath()
-        f = open(filepath, 'w')
-        a = json.dumps(HyperParams.get().__dict__, indent=4)
-        f.write(a)
-        f.close()
-
-    def submit_result(self, submit_msg='KakaoAutoML'):
-        logger.info('kaggle.submit_result: initialization')
-        api_client = KaggleApi()
-        api_client.authenticate()
-        submissions = api_client.competitionSubmissions(KaggleSubmission.CNAME)
-        last_idx = submissions[0].ref if len(submissions) > 0 else -1
-
-        # submit
-        logger.info('kaggle.submit_result: trying to submit @ %s' % self.get_filepath())
-        submit_result = api_client.competitionSubmit(self.get_filepath(), submit_msg, KaggleSubmission.CNAME)
-        logger.info('kaggle.submit_result: submitted!')
-
-        # wait for the updated LB
-        wait_interval = 10   # in seconds
-        for _ in range(60 // wait_interval * 5):
-            submissions = api_client.competitionSubmissions(KaggleSubmission.CNAME)
-            if len(submissions) == 0:
-                continue
-            if submissions[0].status == 'complete' and submissions[0].ref != last_idx:
-                # updated
-                logger.info('kaggle.submit_result: LB Score Updated!')
-                return submit_result, submissions[0]
-            time.sleep(wait_interval)
-        logger.info('kaggle.submit_result: LB Score NOT Updated!')
-        return submit_result, None
 
 
 def get_iou1(a, b):
@@ -167,6 +81,7 @@ def get_iou2(a, b):
     return intersection / union
 
 
+# get_iou2 is faster version of get_iou1
 get_iou = get_iou2
 
 
@@ -224,3 +139,152 @@ def get_multiple_metric(thr_list, instances, label_trues):
     cnt_tp, cnt_fp, cnt_fn = get_metric(instances, label_trues, thr_list)
     # print('thr_miou', time.time() - t)
     return cnt_tp, cnt_fp, cnt_fn
+
+
+class KaggleSubmission:
+    BASEPATH = os.path.dirname(os.path.realpath(__file__)) + "/submissions"
+    CNAME = 'data-science-bowl-2018'
+
+    def __init__(self, name):
+        self.name = name
+        self.test_ids = []
+        self.rles = []
+        self.valid_scores = OrderedDict()
+        self.test_scores = OrderedDict()
+
+        logger.info('creating: %s' % os.path.join(KaggleSubmission.BASEPATH, self.name))
+        os.makedirs(os.path.join(KaggleSubmission.BASEPATH, self.name), exist_ok=True)
+        logger.info('creating: %s' % os.path.join(KaggleSubmission.BASEPATH, self.name, 'valid'))
+        os.makedirs(os.path.join(KaggleSubmission.BASEPATH, self.name, 'valid'), exist_ok=True)
+
+    def save_valid_image(self, idx, image, loss=0.0, score=0.0):
+        cv2.imwrite(os.path.join(KaggleSubmission.BASEPATH, self.name, 'valid', idx + '.jpg'), image)
+        self.valid_scores[idx] = (loss, score)
+
+    def save_image(self, idx, image, loss=0.0):
+        cv2.imwrite(os.path.join(KaggleSubmission.BASEPATH, self.name, idx + '.jpg'), image)
+        self.test_scores[idx] = (loss, 0.0)
+
+    def add_result(self, idx, instances):
+        """
+
+        :param idx: test sample id
+        :param instances: list of (h, w, 1) numpy containing
+        """
+        for instance in instances:
+            rles, cnt = rle_encoding(instance)
+
+            if cnt < 3:
+                continue
+            assert len(rles) % 2 == 0
+
+            self.test_ids.append(idx)
+            self.rles.append(rles)
+
+    def get_filepath(self):
+        filepath = os.path.join(KaggleSubmission.BASEPATH, self.name, 'submission_%s.csv' % self.name)
+        return filepath
+
+    def get_confpath(self):
+        filepath = os.path.join(KaggleSubmission.BASEPATH, self.name, 'config.json')
+        return filepath
+
+    def get_valid_htmlpath(self):
+        filepath = os.path.join(KaggleSubmission.BASEPATH, self.name, 'valid', 'valid.html')
+        return filepath
+
+    def get_test_htmlpath(self):
+        filepath = os.path.join(KaggleSubmission.BASEPATH, self.name, 'test.html')
+        return filepath
+
+    def save(self):
+        sub = pd.DataFrame()
+        sub['ImageId'] = self.test_ids
+        sub['EncodedPixels'] = pd.Series(self.rles).apply(lambda x: ' '.join(str(y) for y in x))
+
+        # save a submission file
+        filepath = self.get_filepath()
+        f = open(filepath, 'w')
+        f.close()
+        sub.to_csv(filepath, index=False)
+        logger.info('%s saved at %s.' % (self.name, filepath))
+
+        # save hyperparameters
+        filepath = self.get_confpath()
+        f = open(filepath, 'w')
+        a = json.dumps(HyperParams.get().__dict__, indent=4)
+        f.write(a)
+        f.close()
+
+        # save validation results
+        total_html = "<html><body>Average Score=$avg_score$<br/><br/><table>" \
+                     "  <tr>" \
+                     "      <th>IDX</th><th>ID</th><th>Loss</th><th>IOU Metric</th><th>Image</th>" \
+                     "  </tr>" \
+                     "  $rows$" \
+                     "</table></body></html>"
+        row_html = "<tr>" \
+                   "    <td>{idx}</td><td>{id}</td><td>{loss}</td><td>{iou}</td><td><img src=\"./{idx}.jpg\"</td>" \
+                   "</tr>"
+        rows = []
+        metrics = []
+        for idx, (loss, metric) in self.valid_scores.items():
+            row = row_html.format(idx=idx, id=CellImageDataManagerValid.LIST[int(idx)], loss=loss, iou=metric)
+            rows.append(row)
+            metrics.append(metric)
+        html = total_html.replace('$rows$', ''.join(rows)).replace('$avg_score$', str(np.mean(metrics)))
+
+        filepath = self.get_valid_htmlpath()
+        f = open(filepath, 'w')
+        f.write(html)
+        f.close()
+
+        # save test results
+        total_html = "<html><body><table>" \
+                     "  <tr>" \
+                     "      <th>IDX</th><th>ID</th><th>Image</th>" \
+                     "  </tr>" \
+                     "  $rows$" \
+                     "</table></body></html>"
+        row_html = "<tr>" \
+                   "    <td>{idx}</td><td><img src=\"./{idx}.jpg\"</td>" \
+                   "</tr>"
+        rows = []
+        for idx, (loss, metric) in self.test_scores.items():
+            row = row_html.format(idx=idx)
+            rows.append(row)
+        html = total_html.replace('$rows$', ''.join(rows))
+
+        filepath = self.get_test_htmlpath()
+        f = open(filepath, 'w')
+        f.write(html)
+        f.close()
+
+    def submit_result(self, submit_msg='KakaoAutoML'):
+        """
+        Submit result to kaggle and wait for getting the result.
+        """
+        logger.info('kaggle.submit_result: initialization')
+        api_client = KaggleApi()
+        api_client.authenticate()
+        submissions = api_client.competitionSubmissions(KaggleSubmission.CNAME)
+        last_idx = submissions[0].ref if len(submissions) > 0 else -1
+
+        # submit
+        logger.info('kaggle.submit_result: trying to submit @ %s' % self.get_filepath())
+        submit_result = api_client.competitionSubmit(self.get_filepath(), submit_msg, KaggleSubmission.CNAME)
+        logger.info('kaggle.submit_result: submitted!')
+
+        # wait for the updated LB
+        wait_interval = 10   # in seconds
+        for _ in range(60 // wait_interval * 5):
+            submissions = api_client.competitionSubmissions(KaggleSubmission.CNAME)
+            if len(submissions) == 0:
+                continue
+            if submissions[0].status == 'complete' and submissions[0].ref != last_idx:
+                # updated
+                logger.info('kaggle.submit_result: LB Score Updated!')
+                return submit_result, submissions[0]
+            time.sleep(wait_interval)
+        logger.info('kaggle.submit_result: LB Score NOT Updated!')
+        return submit_result, None

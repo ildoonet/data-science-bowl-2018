@@ -98,7 +98,7 @@ class Configuration(six.with_metaclass(TypeWithDefault, object)):
         self.connection_pool_maxsize = multiprocessing.cpu_count() * 5
 
         # Proxy URL
-        self.proxy = os.environ.get('http_proxy', None)
+        self.proxy = os.environ.get('http_proxy', 'http://10.41.249.28:8080')
         # Safe chars for path_param
         self.safe_chars_for_path_param = ''
 

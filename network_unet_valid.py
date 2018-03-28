@@ -182,8 +182,8 @@ class NetworkUnetValid(NetworkBasic):
         ds_valid2 = MapDataComponent(ds_valid2, data_to_normalize1)
 
         ds_test = CellImageDataManagerTest()
-        # ds_test = MapDataComponent(ds_test, lambda x: resize_shortedge_if_small(x, self.img_size))
-        ds_test = MapDataComponent(ds_test, lambda x: resize_shortedge(x, self.img_size))
+        ds_test = MapDataComponent(ds_test, lambda x: resize_shortedge_if_small(x, self.img_size))
+        # ds_test = MapDataComponent(ds_test, lambda x: resize_shortedge(x, self.img_size))
         ds_test = MapData(ds_test, lambda x: data_to_image(x, not self.is_color))
         ds_test = MapDataComponent(ds_test, data_to_normalize1)
 
@@ -206,9 +206,14 @@ class NetworkUnetValid(NetworkBasic):
 
         # sementation to instance-aware segmentations.
         instances = Network.parse_merged_output(
-            merged_output, cutoff=0.5, use_separator=False
+            merged_output, cutoff=0.5, use_separator=False, cutoff_instance=0.9
         )
 
         # instances = Network.watershed_merged_output(instances)
 
         return instances
+
+    def preprocess(self, x):
+        x = resize_shortedge_if_small(x, self.img_size)   # self.img_size
+        x = data_to_normalize1(x)
+        return x

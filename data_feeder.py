@@ -49,11 +49,14 @@ class CellImageData:
             multi_masks = multi_masks[..., np.newaxis]
         return multi_masks
 
-    def multi_masks(self):
+    def multi_masks(self, transpose=True):
         """
         :return: (h, w, m) numpy
         """
-        return np.stack(self.masks, axis=0).transpose([1, 2, 0])
+        r = np.stack(self.masks, axis=0)
+        if transpose:
+            r = r.transpose([1, 2, 0])
+        return r
 
     def multi_masks_batch(self):
         img_h, img_w = self.img.shape[:2]
@@ -110,31 +113,37 @@ class CellImageDataManager(RNGDataFlow):
 
 
 class CellImageDataManagerTrain(CellImageDataManager):
+    LIST = list(next(os.walk(master_dir_train))[1])[:576]
+
     def __init__(self):
         super().__init__(
             master_dir_train,
             # list(next(os.walk(master_dir_train))[1])[-576:],
-            list(next(os.walk(master_dir_train))[1])[:576],
+            CellImageDataManagerTrain.LIST,
             True
         )
         # TODO : train/valid set k folds implementation
 
 
 class CellImageDataManagerValid(CellImageDataManager):
+    LIST = list(next(os.walk(master_dir_train))[1])[576:]
+
     def __init__(self):
         super().__init__(
             master_dir_train,
             # list(next(os.walk(master_dir_train))[1])[:-576],
-            list(next(os.walk(master_dir_train))[1])[576:],
+            CellImageDataManagerValid.LIST,
             False
         )
 
 
 class CellImageDataManagerTest(CellImageDataManager):
+    LIST = list(next(os.walk(master_dir_test))[1])
+
     def __init__(self):
         super().__init__(
             master_dir_test,
-            list(next(os.walk(master_dir_test))[1]),
+            CellImageDataManagerTest.LIST,
             False
         )
 

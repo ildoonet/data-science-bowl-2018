@@ -9,10 +9,13 @@ import datetime
 import fire
 import numpy as np
 import tensorflow as tf
+from skimage.exposure import exposure
 from tqdm import tqdm
+from imgaug import augmenters as iaa
 
 from checkmate.checkmate import BestCheckpointSaver, get_best_checkpoint
-from data_feeder import batch_to_multi_masks
+from data_feeder import batch_to_multi_masks, CellImageData, master_dir_test, master_dir_train, \
+    CellImageDataManagerValid
 from hyperparams import HyperParams
 from network import Network
 from network_basic import NetworkBasic
@@ -30,10 +33,15 @@ ch.setFormatter(formatter)
 logger.handlers = []
 logger.addHandler(ch)
 
+thr_list = np.arange(0.5, 1.0, 0.05)
+
 
 class Trainer:
-    def run(self, model, epoch=250,
-            batchsize=16, learning_rate=0.0005, early_rejection=False,
+    def validate(self, model, checkpoint, tag=''):
+        self.run(model, epoch=0, tag=tag, checkpoint=checkpoint, save_result=True)
+
+    def run(self, model, epoch=600,
+            batchsize=16, learning_rate=0.0001, early_rejection=False,
             valid_interval=10, tag='', show_train=0, show_valid=0, show_test=0, save_result=True, checkpoint='',
             **kwargs):
         if model == 'basic':
@@ -85,7 +93,7 @@ class Trainer:
                 sess.run(tf.global_variables_initializer())
             else:
                 saver.restore(sess, checkpoint)
-                logger.info('restore from checkpoint, %s' % checkpoint)
+                logger.info('restored from checkpoint, %s' % checkpoint)
 
             try:
                 losses = []
@@ -104,7 +112,8 @@ class Trainer:
                         # cv2.waitKey(0)
 
                     loss_val_avg = sum(loss_val_avg) / len(loss_val_avg)
-                    logger.info('training %d epoch %d step, lr=%.8f loss=%.4f train_iter=%d' % (e+1, step, lr, loss_val_avg, train_cnt))
+                    logger.info('training %d epoch %d step, lr=%.8f loss=%.4f train_iter=%d' % (
+                    e + 1, step, lr, loss_val_avg, train_cnt))
                     losses.append(loss_val)
 
                     if early_rejection and len(losses) > 100 and losses[len(losses) - 100] * 1.05 < loss_val_avg:
@@ -133,7 +142,6 @@ class Trainer:
                             best_loss_val = avg
 
                     if loss_val < 0.20 and e > 50 and (e + 1) % valid_interval == 0:
-                        thr_list = np.arange(0.5, 1.0, 0.05)
                         cnt_tps = np.array((len(thr_list)), dtype=np.int32),
                         cnt_fps = np.array((len(thr_list)), dtype=np.int32)
                         cnt_fns = np.array((len(thr_list)), dtype=np.int32)
@@ -172,7 +180,7 @@ class Trainer:
                 logger.info('training is done. Start to evaluate the best model. %s' % chk_path)
                 saver.restore(sess, chk_path)
             except Exception as e:
-                logger.warning(str(e))
+                logger.warning('error while loading the best model:' + str(e))
 
             # show sample in train set : show_train > 0
             for idx, dp_train in enumerate(ds_train.get_data()):
@@ -186,17 +194,25 @@ class Trainer:
 
             # show sample in valid set : show_valid > 0
             kaggle_submit = KaggleSubmission(name)
-            logging.info('Start to test on validation set.... (may take a while)')
-            for idx, dp_valid in enumerate(ds_valid_full.get_data()):
+            logger.info('Start to test on validation set.... (may take a while)')
+            valid_metrics = []
+            for idx, dp_valid in tqdm(enumerate(ds_valid_full.get_data()), total=len(CellImageDataManagerValid.LIST)):
                 image = dp_valid[0]
+                labels = list(batch_to_multi_masks(dp_valid[2], transpose=False))
                 instances = network.inference(sess, image)
 
-                img_vis = Network.visualize(image, dp_valid[1], instances, None)
-                kaggle_submit.save_valid_image(str(idx), img_vis)
+                tp, fp, fn = get_multiple_metric(thr_list, instances, labels)
+
+                img_vis = Network.visualize(image, labels, instances, None)
+                score = (np.mean(tp / (tp + fp + fn)))
+                kaggle_submit.save_valid_image(str(idx), img_vis, score=score)
+                valid_metrics.append(score)
 
                 if idx < show_valid:
+                    logger.info('score=%.3f, tp=%d, fp=%d, fn=%d' % (tp / (tp + fp + fn), tp, fp, fn))
                     cv2.imshow('valid', Network.visualize(image, dp_valid[2], instances, None))
                     cv2.waitKey(0)
+            logger.info('validation ends. score=%.4f' % np.mean(valid_metrics))
 
             # show sample in test set
             logger.info('saving...')
@@ -218,8 +234,73 @@ class Trainer:
                     kaggle_submit.save_image(test_id, img_vis)
                     kaggle_submit.add_result(test_id, instances)
                 kaggle_submit.save()
-        logger.info('done. epoch=%d best_loss_val=%.4f best_mIOU=%.4f name= %s' % (m_epoch, best_loss_val, best_miou_val, name))
+        logger.info(
+            'done. epoch=%d best_loss_val=%.4f best_mIOU=%.4f name= %s' % (m_epoch, best_loss_val, best_miou_val, name))
         return best_miou_val, name
+
+    def single_id(self, model, checkpoint, single_id, set_type='train'):
+        batchsize = 1
+        if model == 'basic':
+            network = NetworkBasic(batchsize, unet_weight=True)
+        elif model == 'simple_unet':
+            network = NetworkUnet(batchsize, unet_weight=True)
+        elif model == 'unet':
+            network = NetworkUnetValid(batchsize, unet_weight=True)
+        elif model == 'simple_fusion':
+            network = NetworkFusionNet(batchsize)
+        else:
+            raise Exception('model name(%s) is not valid' % model)
+
+        logger.info('constructing network model: %s' % model)
+        network.build()
+
+        saver = tf.train.Saver()
+        config = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)
+        with tf.Session(config=config) as sess:
+            saver.restore(sess, checkpoint)
+            logger.info('restored from checkpoint, %s' % checkpoint)
+
+            d = CellImageData(single_id, (master_dir_train if set_type == 'train' else master_dir_test))
+            h, w = d.img.shape[:2]
+            logger.info('image size=(%d x %d)' % (w, h))
+            # n = iaa.ContrastNormalization(alpha=0.8)
+            # d.img = n.augment_image(d.img)
+
+            d = network.preprocess(d)
+
+            image = d.image(is_gray=False)
+
+            labels = list(d.multi_masks(transpose=False))
+            instances = network.inference(sess, image)
+
+            # re-inference after rescale image
+
+            # resize as the original
+            image = cv2.resize(image, (w, h), interpolation=cv2.INTER_AREA)
+            instances = Network.resize_instances(instances, target_size=(h, w))
+            labels = Network.resize_instances(labels, target_size=(h, w))
+
+            tp, fp, fn = get_multiple_metric(thr_list, instances, labels)
+
+            img_vis = Network.visualize(image, labels, instances, None)
+
+            logger.info('instances=%d, labels=%d' % (len(instances), len(labels)))
+            for i, thr in enumerate(thr_list):
+                logger.info('score=%.3f, tp=%d, fp=%d, fn=%d --- iou %.2f' % (
+                    (tp / (tp + fp + fn))[i],
+                    tp[i],
+                    fp[i],
+                    fn[i],
+                    thr
+                ))
+            logger.info('score=%.3f, tp=%.1f, fp=%.1f, fn=%.1f --- mean' % (
+                np.mean(tp / (tp + fp + fn)),
+                np.mean(tp),
+                np.mean(fp),
+                np.mean(fn)
+            ))
+            cv2.imshow('valid', img_vis)
+            cv2.waitKey(0)
 
 
 def do_get_multiple_metric(args):

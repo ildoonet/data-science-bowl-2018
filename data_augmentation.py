@@ -67,8 +67,8 @@ def resize_shortedge(data, target_size):
         new_h, new_w = target_size, round(scale * img_w)
     else:
         new_h, new_w = round(scale * img_h), target_size
-    data.img = cv2.resize(data.img, (new_w, new_h))
-    data.masks = [cv2.resize(mask, (new_w, new_h)) for mask in data.masks]
+    data.img = cv2.resize(data.img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    data.masks = [cv2.resize(mask, (new_w, new_h), interpolation=cv2.INTER_AREA) for mask in data.masks]
     return data
 
 
@@ -127,8 +127,8 @@ def random_scaling(data):
     new_w = int(random.uniform(1.-scale_f1, 1.+scale_f2) * img_w)
     new_h = int(random.uniform(1.-scale_f1, 1.+scale_f2) * img_h)
 
-    data.img = cv2.resize(data.img, (new_w, new_h))
-    data.masks = [cv2.resize(mask, (new_w, new_h)) for mask in data.masks]
+    data.img = cv2.resize(data.img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    data.masks = [cv2.resize(mask, (new_w, new_h), interpolation=cv2.INTER_AREA) for mask in data.masks]
     data.img_w, data.img_h = new_w, new_h
     return data
 
@@ -220,7 +220,10 @@ def data_to_normalize01(data):
 
 
 def data_to_normalize1(data):
-    return data.astype(np.float32) / 128 - 1.0
+    if isinstance(data, np.ndarray):
+        return data.astype(np.float32) / 128 - 1.0
+    data.img = data.img.astype(np.float32) / 128 - 1.0
+    return data
 
 
 def data_to_elastic_transform_wrapper(data):

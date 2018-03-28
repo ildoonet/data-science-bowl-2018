@@ -31,8 +31,6 @@ class NetworkBasic(Network):
         self.loss = None
         self.unet_weight = unet_weight
 
-
-
     def get_placeholders(self):
         return self.input_batch, self.mask_batch, self.unused
 
@@ -189,6 +187,11 @@ class NetworkBasic(Network):
 
     def get_loss(self):
         return self.loss
+
+    def preprocess(self, x):
+        x = resize_shortedge_if_small_224(x)
+        x = data_to_normalize1(x)
+        return x
 
     def inference(self, tf_sess, image):
         cascades, windows = Network.sliding_window(image, 224, 0.5)

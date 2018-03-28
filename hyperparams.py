@@ -30,7 +30,7 @@ class HyperParams:
         self.net_bn_epsilon = 0.001
         self.net_init_stddev = 0.01
 
-        self.unet_base_feature = 32         # 24?
+        self.unet_base_feature = 24
         self.unet_step_size = 4
 
         self.pre_erosion_iter = 1
