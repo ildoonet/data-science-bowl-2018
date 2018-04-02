@@ -2,9 +2,10 @@ import tensorflow as tf
 import numpy as np
 from tensorflow.python.ops.losses.losses_impl import Reduction
 
-from data_augmentation import random_crop_224, data_to_segment_input, center_crop_224, \
-    data_to_image, resize_shortedge_if_small_224, random_flip_lr, random_flip_ud, random_scaling, random_affine, \
-    random_color, data_to_normalize1, data_to_elastic_transform_wrapper, random_color2, erosion_mask
+from data_augmentation import data_to_segment_input, \
+    data_to_image, random_flip_lr, random_flip_ud, random_scaling, random_affine, \
+    random_color, data_to_normalize1, data_to_elastic_transform_wrapper, random_color2, erosion_mask, random_crop, \
+    resize_shortedge_if_small, center_crop
 from data_feeder import CellImageDataManagerTrain, CellImageDataManagerValid, CellImageDataManagerTest
 from network import Network
 
@@ -131,8 +132,8 @@ class NetworkBasic(Network):
         ds_train = MapDataComponent(ds_train, random_color)
         # ds_train = MapDataComponent(ds_train, random_color2)  # not good
         ds_train = MapDataComponent(ds_train, random_scaling)
-        ds_train = MapDataComponent(ds_train, resize_shortedge_if_small_224)
-        ds_train = MapDataComponent(ds_train, random_crop_224)
+        ds_train = MapDataComponent(ds_train, lambda x: resize_shortedge_if_small(x, 224))
+        ds_train = MapDataComponent(ds_train, lambda x: random_crop(x, 224, 224))
         ds_train = MapDataComponent(ds_train, random_flip_lr)
         # ds_train = MapDataComponent(ds_train, data_to_elastic_transform_wrapper)
         ds_train = MapDataComponent(ds_train, random_flip_ud)
@@ -145,7 +146,7 @@ class NetworkBasic(Network):
         ds_train = PrefetchData(ds_train, 10, 2)
 
         ds_valid = CellImageDataManagerValid()
-        ds_valid = MapDataComponent(ds_valid, center_crop_224)
+        ds_valid = MapDataComponent(ds_valid, lambda x: center_crop(x, 224, 224))
         if self.unet_weight:
             ds_valid = MapDataComponent(ds_valid, erosion_mask)
         ds_valid = MapData(ds_valid, lambda x: data_to_segment_input(x, not self.is_color, self.unet_weight))
@@ -154,12 +155,12 @@ class NetworkBasic(Network):
         ds_valid = PrefetchData(ds_valid, 20, 24)
 
         ds_valid2 = CellImageDataManagerValid()
-        ds_valid2 = MapDataComponent(ds_valid2, resize_shortedge_if_small_224)
+        ds_valid2 = MapDataComponent(ds_valid2, lambda x: resize_shortedge_if_small(x, 224))
         ds_valid2 = MapData(ds_valid2, lambda x: data_to_segment_input(x, not self.is_color))
         ds_valid2 = MapDataComponent(ds_valid2, data_to_normalize1)
 
         ds_test = CellImageDataManagerTest()
-        ds_test = MapDataComponent(ds_test, resize_shortedge_if_small_224)
+        ds_test = MapDataComponent(ds_test, lambda x: resize_shortedge_if_small(x, 224))
         ds_test = MapData(ds_test, lambda x: data_to_image(x, not self.is_color))
         ds_test = MapDataComponent(ds_test, data_to_normalize1)
 

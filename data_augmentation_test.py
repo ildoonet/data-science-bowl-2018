@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 
 from data_augmentation import resize_shortedge, random_crop, center_crop, resize_shortedge_if_small, \
-    flip, data_to_elastic_transform, random_color2
+    flip, data_to_elastic_transform, random_color2, mask_size_normalize, get_max_size_of_masks
 from data_feeder import CellImageData, master_dir_train
 
 
@@ -77,5 +77,14 @@ class TestAugmentation(unittest.TestCase):
     def test_random_color2(self):
         for _ in range(5):
             d = random_color2(self.d)
-            cv2.imshow('random_color2', d.img)
-            cv2.waitKeyEx(0)
+            # cv2.imshow('random_color2', d.img)
+            # cv2.waitKeyEx(0)
+
+    def test_size_normalization(self):
+        for target_cell_size in [30, 50, 100, 150]:
+            d = mask_size_normalize(self.d, target_cell_size)
+
+            self.assertAlmostEqual(get_max_size_of_masks(d), target_cell_size, delta=2.0)
+
+            # cv2.imshow('size_normalization', d.img)
+            # cv2.waitKeyEx(0)

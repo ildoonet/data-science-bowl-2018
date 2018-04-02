@@ -5,7 +5,7 @@ from tensorflow.contrib import slim
 from data_augmentation import data_to_segment_input, \
     data_to_image, random_flip_lr, random_flip_ud, random_scaling, random_affine, \
     random_color, data_to_normalize1, data_to_elastic_transform_wrapper, resize_shortedge_if_small, random_crop, \
-    center_crop, random_color2, erosion_mask, resize_shortedge
+    center_crop, random_color2, erosion_mask, resize_shortedge, mask_size_normalize
 from data_feeder import CellImageDataManagerTrain, CellImageDataManagerValid, CellImageDataManagerTest
 from tensorpack.dataflow.common import BatchData, MapData, MapDataComponent
 from tensorpack.dataflow.parallel import PrefetchData
@@ -149,10 +149,12 @@ class NetworkUnetValid(NetworkBasic):
 
     def get_input_flow(self):
         ds_train = CellImageDataManagerTrain()
+        # TODO : Resize by instance size - normalization
         # Augmentation :
-        # ds_train = MapDataComponent(ds_train, random_affine)
+        # ds_train = MapDataComponent(ds_train, random_affine)  # TODO : no improvement?
         ds_train = MapDataComponent(ds_train, random_color)
-        ds_train = MapDataComponent(ds_train, random_scaling)
+        # ds_train = MapDataComponent(ds_train, random_scaling)
+        ds_train = MapDataComponent(ds_train, mask_size_normalize)
         ds_train = MapDataComponent(ds_train, lambda x: resize_shortedge_if_small(x, self.img_size))
         ds_train = MapDataComponent(ds_train, lambda x: random_crop(x, self.img_size, self.img_size))
         ds_train = MapDataComponent(ds_train, random_flip_lr)
@@ -160,11 +162,11 @@ class NetworkUnetValid(NetworkBasic):
         # ds_train = MapDataComponent(ds_train, data_to_elastic_transform_wrapper)
         if self.unet_weight:
             ds_train = MapDataComponent(ds_train, erosion_mask)
-        ds_train = PrefetchData(ds_train, 1000, 24)
         ds_train = MapData(ds_train, lambda x: data_to_segment_input(x, not self.is_color, self.unet_weight))
+        ds_train = PrefetchData(ds_train, 1000, 24)
         ds_train = BatchData(ds_train, self.batchsize)
         ds_train = MapDataComponent(ds_train, data_to_normalize1)
-        ds_train = PrefetchData(ds_train, 10, 2)
+        ds_train = PrefetchData(ds_train, 20, 1)
 
         ds_valid = CellImageDataManagerValid()
         ds_valid = MapDataComponent(ds_valid, lambda x: random_crop(x, self.img_size, self.img_size))

@@ -18,12 +18,16 @@ class HyperParams:
 
         self.opt_decay_steps = 450
         self.opt_decay_rate = 0.98          # 0.3?
+        self.opt_momentum = 0.9
+        self.optimizer = 'adam'
 
         self.pre_scale_f1 = 0.4
         self.pre_scale_f2 = 0.4
         self.pre_affine_rotate = 45
         self.pre_affine_shear = 5
         self.pre_affine_translate = 0.1     # 0.4?
+        self.pre_size_norm_min = 10         # in pixel
+        self.pre_size_norm_max = 150         # in pixel
 
         self.net_dropout_keep = 0.9         # 0.8?
         self.net_bn_decay = 0.9

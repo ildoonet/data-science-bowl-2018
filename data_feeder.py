@@ -1,6 +1,8 @@
 import random
 from collections import defaultdict
 
+import sys
+import logging
 import numpy as np
 import os
 import cv2
@@ -9,20 +11,32 @@ from tensorpack.dataflow.common import BatchData, MapData, MapDataComponent
 from tensorpack.dataflow.base import RNGDataFlow
 from tensorpack.dataflow import PrefetchData
 
-from data_augmentation import random_crop_224, data_to_segment_input, data_to_normalize01
+from data_augmentation import data_to_segment_input, data_to_normalize01
+
+logger = logging.getLogger('train')
+logger.setLevel(logging.DEBUG)
+ch = logging.StreamHandler(sys.stdout)
+ch.setLevel(logging.DEBUG)
+formatter = logging.Formatter('[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s')
+ch.setFormatter(formatter)
+logger.handlers = []
+logger.addHandler(ch)
 
 master_dir_train = '/data/public/rw/datasets/dsb2018/train'
 master_dir_test = '/data/public/rw/datasets/dsb2018/test'
 
+# extra1 ref : https://www.kaggle.com/voglinio/external-h-e-data-with-mask-annotations/notebook
+extra1_dir = '/data/public/rw/datasets/dsb2018/extra_data'
+
 
 class CellImageData:
-    def __init__(self, target_id, path):
+    def __init__(self, target_id, path, ext='png'):
         self.target_id = target_id
 
         # read
         target_dir = os.path.join(path, target_id)
 
-        img_path = os.path.join(target_dir, 'images', target_id + '.png')
+        img_path = os.path.join(target_dir, 'images', target_id + '.' + ext)
 
         self.img = cv2.imread(img_path, cv2.IMREAD_COLOR)
         self.img_h, self.img_w = self.img.shape[:2]
@@ -36,6 +50,9 @@ class CellImageData:
         for mask_file in next(os.walk(mask_dir))[2]:
             mask_path = os.path.join(target_dir, 'masks', mask_file)
             mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+            if mask is None:
+                logger.warning('%s %s %s not read' % (target_id, ext, mask_file))
+                continue
             mask = mask >> 7    # faster than mask // 129
             self.masks.append(mask)
 
@@ -109,17 +126,23 @@ class CellImageDataManager(RNGDataFlow):
             random.shuffle(self.idx_list)
 
         for idx in self.idx_list:
-            yield [CellImageData(idx, self.path)]
+            if 'TCGA' in idx:
+                # extra1 dataset
+                yield [CellImageData(idx, extra1_dir, ext='tif')]
+            else:
+                # default dataset
+                yield [CellImageData(idx, self.path)]
 
 
 class CellImageDataManagerTrain(CellImageDataManager):
     LIST = list(next(os.walk(master_dir_train))[1])[:576]
+    LIST_EXT1 = list(next(os.walk(extra1_dir))[1])
 
     def __init__(self):
         super().__init__(
             master_dir_train,
             # list(next(os.walk(master_dir_train))[1])[-576:],
-            CellImageDataManagerTrain.LIST,
+            CellImageDataManagerTrain.LIST + CellImageDataManagerTrain.LIST_EXT1,
             True
         )
         # TODO : train/valid set k folds implementation
@@ -127,12 +150,14 @@ class CellImageDataManagerTrain(CellImageDataManager):
 
 class CellImageDataManagerValid(CellImageDataManager):
     LIST = list(next(os.walk(master_dir_train))[1])[576:]
+    LIST_EXT1 = []
+    # LIST_EXT1 = list(next(os.walk(extra1_dir))[1])[20:]
 
     def __init__(self):
         super().__init__(
             master_dir_train,
             # list(next(os.walk(master_dir_train))[1])[:-576],
-            CellImageDataManagerValid.LIST,
+            CellImageDataManagerValid.LIST + CellImageDataManagerValid.LIST_EXT1,
             False
         )
 
@@ -183,7 +208,6 @@ class MetaData:
 
 def get_default_dataflow():
     ds = CellImageDataManagerTrain()
-    ds = MapDataComponent(ds, random_crop_224)
     ds = PrefetchData(ds, 1000, 12)
 
     return ds

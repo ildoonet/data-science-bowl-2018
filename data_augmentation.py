@@ -9,6 +9,12 @@ from hyperparams import HyperParams
 
 
 def erosion_mask(data):
+    """
+    As described in the original paper, Separation between cluttered cells is enhanced by using morphological algorithm.
+
+    :param data: CellImageData
+    :return: CellImageData
+    """
     total_map = np.zeros_like(data.masks[0], dtype=np.uint8)
     masks = []
     for mask in data.masks:
@@ -26,6 +32,11 @@ def erosion_mask(data):
 
 
 def random_flip_lr(data):
+    """
+    randomly flip(50%) horizontally
+    :param data: CellImageData
+    :return: CellImageData
+    """
     s = random.randint(0, 1)
     if s == 0:
         return data
@@ -33,6 +44,11 @@ def random_flip_lr(data):
 
 
 def random_flip_ud(data):
+    """
+    randomly flip(50%) vertically
+    :param data: CellImageData
+    :return: CellImageData
+    """
     s = random.randint(0, 1)
     if s == 0:
         return data
@@ -40,19 +56,21 @@ def random_flip_ud(data):
 
 
 def flip(data, orientation=0):
+    """
+    flip CellImageData with the specified orientation(0=horizontal, 1=vertical)
+    """
     # flip horizontally
     data.img = cv2.flip(data.img, orientation)
     data.masks = [cv2.flip(mask, orientation) for mask in data.masks]
     return data
 
 
-def resize_shortedge_if_small_224(data):
-    return resize_shortedge_if_small(data, 224)
-
-
 def resize_shortedge_if_small(data, target_size):
     """
     resize the image ONLY IF its size is smaller than 'target_size'
+    :param data: CellImageData
+    :param target_size:
+    :return:
     """
     img_h, img_w = data.img.shape[:2]
     if img_h < target_size or img_w < target_size:
@@ -61,6 +79,11 @@ def resize_shortedge_if_small(data, target_size):
 
 
 def resize_shortedge(data, target_size):
+    """
+    Resize the image and masks as the shorter axis would be the same size of the target.
+    :param data: CellImageData
+    :return: CellImageData
+    """
     img_h, img_w = data.img.shape[:2]
     scale = target_size / min(img_h, img_w)
     if img_h < img_w:
@@ -72,11 +95,12 @@ def resize_shortedge(data, target_size):
     return data
 
 
-def random_crop_224(data):
-    return random_crop(data, 224, 224)
-
-
 def random_crop(data, w, h):
+    """
+    Random-Crop cell image data(image, masks) with the specified size.
+    :param data: CellImageData
+    :return: CellImageData
+    """
     img_h, img_w = data.img.shape[:2]
 
     x = random.randint(0, img_w - w)
@@ -87,11 +111,12 @@ def random_crop(data, w, h):
     return data
 
 
-def center_crop_224(data):
-    return center_crop(data, 224, 224)
-
-
 def center_crop(data, w, h):
+    """
+    Center-Crop cell image data(image, masks) with the specified size.
+    :param data: CellImageData
+    :return: CellImageData
+    """
     img_h, img_w = data.img.shape[:2]
 
     x = (img_w - w) // 2
@@ -103,6 +128,11 @@ def center_crop(data, w, h):
 
 
 def crop(data, x, y, w, h):
+    """
+    Crop cell image data(image, masks) with the specified coordinate.
+    :param data: CellImageData
+    :return: CellImageData
+    """
     assert x >= 0 and y >= 0 and w > 0 and h > 0
 
     img_h, img_w = data.img.shape[:2]
@@ -118,6 +148,11 @@ def crop(data, x, y, w, h):
 
 
 def random_scaling(data):
+    """
+    Randomly scale an image and masks.
+    :param data: CellImageData
+    :return: CellImageData
+    """
     s = random.randint(0, 1)
     if s == 0:
         return data
@@ -134,6 +169,11 @@ def random_scaling(data):
 
 
 def random_affine(data):
+    """
+    Randomly apply affine transformations including rotation, shearing, translation.
+    :param data: CellImageData
+    :return: CellImageData
+    """
     s = random.randint(0, 1)
     if s <= 0:
         return data
@@ -149,6 +189,7 @@ def random_affine(data):
 
 def random_color(data):
     """
+    Changing Color Randomly for Augmentation
     reference : https://github.com/neptune-ml/data-science-bowl-2018/blob/master/augmentation.py
     """
     s = random.randint(0, 1)
@@ -180,6 +221,10 @@ def random_color(data):
 
 
 def random_color2(data):
+    """
+    Invert / Contrast Normalization / Hue&Saturation Augmentation.
+    Currently, this is not used since it degrade the performance.
+    """
     aug = iaa.Sequential([
         iaa.Invert(0.25, per_channel=False),
         iaa.ContrastNormalization((0.7, 1.4)),
@@ -192,7 +237,7 @@ def random_color2(data):
 def data_to_segment_input(data, is_gray=True, unet_weight=False):
     """
     :param data: CellImageData
-    :return: image(h, w, 1), mask(h, w, 1), masks(h, w, m)
+    :return: image(h, w, 1), mask(h, w, 1), masks(h, w, m), (optional) unet weights for mask
     """
     vals = [
         data[0].image(is_gray=is_gray),
@@ -205,6 +250,11 @@ def data_to_segment_input(data, is_gray=True, unet_weight=False):
 
 
 def data_to_image(data, is_gray=True, unet_weight=False):
+    """
+    CellImageData to numpy Images
+    :param data: CellImageData
+    :return: List of Image, data index, data size, (optional) unet weights for mask
+    """
     vals = [
         data[0].image(is_gray=is_gray),
         np.array([data[0].target_id], dtype=np.object),
@@ -216,10 +266,23 @@ def data_to_image(data, is_gray=True, unet_weight=False):
 
 
 def data_to_normalize01(data):
-    return data.astype(np.float32) / 255
+    """
+    Normalize images to have values between 0.0 and 1.0.
+    :param data: numpy array or CellImageData
+    :return: numpy array or CellImageData
+    """
+    if isinstance(data, np.ndarray):
+        return data.astype(np.float32) / 255
+    data.img = data.img.astype(np.float32) / 255
+    return data
 
 
 def data_to_normalize1(data):
+    """
+    Normalize images to have values between -1.0 and 1.0.
+    :param data: numpy array or CellImageData
+    :return: numpy array or CellImageData
+    """
     if isinstance(data, np.ndarray):
         return data.astype(np.float32) / 128 - 1.0
     data.img = data.img.astype(np.float32) / 128 - 1.0
@@ -272,6 +335,50 @@ def data_to_elastic_transform(data, alpha, sigma, alpha_affine, random_state=Non
 
     image = map_coordinates(image, indices, order=1, mode='reflect').reshape(shape)
     masks = [map_coordinates(mask, indices, order=1, mode='reflect').reshape(shape) for mask in masks]
-    masks = [mask[:,:,0] for mask in masks]
+    masks = [mask[:, :, 0] for mask in masks]
 
     return image, masks
+
+
+def mask_size_normalize(data, target_size=None):
+    s = random.randint(0, 1)
+    if s <= 0 and target_size is None:
+        # TODO ?
+        data = random_scaling(data)
+        return data
+
+    # getting maximum size of masks
+    maximum_size = get_max_size_of_masks(data)
+
+    # normalize by the target size
+    if target_size is None:
+        target_size = random.uniform(HyperParams.get().pre_size_norm_min, HyperParams.get().pre_size_norm_max)
+    size_factor = target_size / maximum_size
+
+    shorter_edge_size = min(data.img.shape[:2])
+    target_edge_size = int(shorter_edge_size * size_factor)
+    data = resize_shortedge(data, target_edge_size)
+
+    # TODO : resize to basic size(224?) with mirroring
+
+    return data
+
+
+def get_max_size_of_masks(data):
+    def _bbox(img):
+        rows = np.any(img, axis=1)
+        cols = np.any(img, axis=0)
+        rmin, rmax = np.where(rows)[0][[0, -1]]
+        cmin, cmax = np.where(cols)[0][[0, -1]]
+
+        return rmin, rmax, cmin, cmax
+
+    maximum_size = 1  # in pixel
+    for mask in data.masks:
+        rmin, rmax, cmin, cmax = _bbox(mask)
+        maximum_size = max(maximum_size, rmax - rmin)
+        maximum_size = max(maximum_size, cmax - cmin)
+    return maximum_size
+
+# TODO : Image Drop Augmentation, add/multiply some values? sharpen?
+# TODO : Thick line Occlusion, imgaug pepper? dropout? blur? constrast?

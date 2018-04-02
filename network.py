@@ -8,7 +8,6 @@ from scipy import ndimage
 from skimage.morphology import label
 
 from colors import get_colors
-from data_augmentation import resize_shortedge_if_small
 from hyperparams import HyperParams
 from data_feeder import batch_to_multi_masks
 from separator import separation
@@ -96,7 +95,6 @@ class Network:
         :param output: (h, w, 1) segmentation image
         :return: list of (h, w, 1). instance-aware segmentations.
         """
-        # TODO : Sharpening?
         if use_separator:
             # Ref: https://www.kaggle.com/bostjanm/overlapping-objects-separation-method/notebook
             labels = label(output > cutoff, connectivity=1)
@@ -249,8 +247,17 @@ class Network:
                                                    staircase=True)
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         with tf.control_dependencies(update_ops):
-            # optimizer = tf.train.RMSPropOptimizer(learning_rate, decay=0.9, momentum=0.9)
-            optimizer = tf.train.AdamOptimizer(learning_rate, epsilon=1e-8)
+            if HyperParams.get().optimizer == 'adam':
+                optimizer = tf.train.AdamOptimizer(learning_rate, epsilon=1e-8)
+            elif HyperParams.get().optimizer == 'rmsprop':
+                # not good
+                optimizer = tf.train.RMSPropOptimizer(learning_rate, decay=0.9, momentum=HyperParams.get().opt_momentum)
+            elif HyperParams.get().optimizer == 'sgd':
+                optimizer = tf.train.GradientDescentOptimizer(learning_rate)
+            elif HyperParams.get().optimizer == 'momentum':
+                optimizer = tf.train.MomentumOptimizer(learning_rate, momentum=HyperParams.get().opt_momentum)
+            else:
+                raise Exception('invalid optimizer: %s' % HyperParams.get().optimizer)
             optimize_op = optimizer.minimize(self.get_loss(), global_step, colocate_gradients_with_ops=True)
         return learning_rate, optimize_op
 

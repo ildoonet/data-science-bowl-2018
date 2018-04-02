@@ -84,6 +84,7 @@ class Trainer:
             num_to_keep=100,
             maximize=True
         )
+
         saver = tf.train.Saver()
         config = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)
         m_epoch = 0
@@ -101,8 +102,8 @@ class Trainer:
                     loss_val_avg = []
                     train_cnt = 0
                     for dp_train in ds_train.get_data():
-                        _, step, lr, loss_val = sess.run(
-                            [train_op, global_step, learning_rate_v, net_loss],
+                        _, loss_val = sess.run(
+                            [train_op, net_loss],
                             feed_dict=network.get_feeddict(dp_train, True)
                         )
                         loss_val_avg.append(loss_val)
@@ -111,6 +112,7 @@ class Trainer:
                         # cv2.imshow('train', Network.visualize(dp_train[0][0], dp_train[2][0], None, dp_train[3][0], 'norm1'))
                         # cv2.waitKey(0)
 
+                    step, lr = sess.run([global_step, learning_rate_v])
                     loss_val_avg = sum(loss_val_avg) / len(loss_val_avg)
                     logger.info('training %d epoch %d step, lr=%.8f loss=%.4f train_iter=%d' % (
                     e + 1, step, lr, loss_val_avg, train_cnt))
@@ -126,6 +128,7 @@ class Trainer:
                         break
 
                     m_epoch = e
+                    avg = 10.0
                     if loss_val < 0.20 and (e + 1) % valid_interval == 0:
                         avg = []
                         for _ in range(5):
@@ -141,12 +144,12 @@ class Trainer:
                         if best_loss_val > avg:
                             best_loss_val = avg
 
-                    if loss_val < 0.20 and e > 50 and (e + 1) % valid_interval == 0:
+                    if avg < 0.16 and e > 50 and (e + 1) % valid_interval == 0:
                         cnt_tps = np.array((len(thr_list)), dtype=np.int32),
                         cnt_fps = np.array((len(thr_list)), dtype=np.int32)
                         cnt_fns = np.array((len(thr_list)), dtype=np.int32)
                         pool_args = []
-                        for idx, dp_valid in tqdm(enumerate(ds_valid_full.get_data()), 'validate using the iou metric'):
+                        for idx, dp_valid in tqdm(enumerate(ds_valid_full.get_data()), desc='validate using the iou metric', total=len(CellImageDataManagerValid.LIST + CellImageDataManagerValid.LIST_EXT1)):
                             image = dp_valid[0]
                             instances = network.inference(sess, image)
                             pool_args.append((thr_list, instances, dp_valid[2]))
