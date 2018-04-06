@@ -5,5 +5,5 @@ slidingwindow
 scikit-image
 tensorpack
 tqdm
-https://github.com/hyperopt/hyperopt
+git+https://github.com/hyperopt/hyperopt
 slackclient

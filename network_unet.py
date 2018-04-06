@@ -10,9 +10,9 @@ class NetworkUnet(NetworkBasic):
         super(NetworkUnet, self).__init__(batchsize=batchsize, unet_weight=unet_weight)
 
     @staticmethod
-    def double_conv(net, nb_filter, scope, keep_prob):
+    def double_conv(net, nb_filter, scope):
         net = slim.convolution(net, nb_filter, [3, 3], 1, scope='%s_1' % scope)
-        net = slim.dropout(net, keep_prob=keep_prob)
+        net = slim.dropout(net)
         net = slim.convolution(net, nb_filter, [3, 3], 1, scope='%s_2' % scope)
         return net
 
@@ -89,4 +89,5 @@ class NetworkUnet(NetworkBasic):
             logits=self.logit,
             weights=w
         )
+        self.loss_opt = self.loss
         return net

@@ -9,16 +9,16 @@ import datetime
 import fire
 import numpy as np
 import tensorflow as tf
-from skimage.exposure import exposure
 from tqdm import tqdm
-from imgaug import augmenters as iaa
 
 from checkmate.checkmate import BestCheckpointSaver, get_best_checkpoint
+from data_augmentation import get_max_size_of_masks, mask_size_normalize
 from data_feeder import batch_to_multi_masks, CellImageData, master_dir_test, master_dir_train, \
-    CellImageDataManagerValid
+    CellImageDataManagerValid, CellImageDataManagerTrain
 from hyperparams import HyperParams
 from network import Network
 from network_basic import NetworkBasic
+from network_deeplabv3p import NetworkDeepLabV3p
 from network_unet import NetworkUnet
 from network_fusionnet import NetworkFusionNet
 from network_unet_valid import NetworkUnetValid
@@ -43,6 +43,7 @@ class Trainer:
     def run(self, model, epoch=600,
             batchsize=16, learning_rate=0.0001, early_rejection=False,
             valid_interval=10, tag='', show_train=0, show_valid=0, show_test=0, save_result=True, checkpoint='',
+            pretrain=False,
             **kwargs):
         if model == 'basic':
             network = NetworkBasic(batchsize, unet_weight=True)
@@ -50,12 +51,15 @@ class Trainer:
             network = NetworkUnet(batchsize, unet_weight=True)
         elif model == 'unet':
             network = NetworkUnetValid(batchsize, unet_weight=True)
+        elif model == 'deeplabv3p':
+            network = NetworkDeepLabV3p(batchsize)
         elif model == 'simple_fusion':
             network = NetworkFusionNet(batchsize)
         else:
             raise Exception('model name(%s) is not valid' % model)
 
         logger.info('constructing network model: %s' % model)
+        print(HyperParams.get().__dict__)
 
         ds_train, ds_valid, ds_valid_full, ds_test = network.get_input_flow()
         network.build()
@@ -71,7 +75,7 @@ class Trainer:
 
         best_loss_val = 999999
         best_miou_val = 0.0
-        name = '%s_%s_lr=%.4f_epoch=%d_bs=%d' % (
+        name = '%s_%s_lr=%.8f_epoch=%d_bs=%d' % (
             tag if tag else datetime.datetime.now().strftime("%y%m%dT%H%M%f"),
             model,
             learning_rate,
@@ -92,16 +96,44 @@ class Trainer:
             logger.info('training started+')
             if not checkpoint:
                 sess.run(tf.global_variables_initializer())
+
+                if pretrain:
+                    global_vars = tf.global_variables()
+
+                    from tensorflow.python import pywrap_tensorflow
+                    reader = pywrap_tensorflow.NewCheckpointReader(network.get_pretrain_path())
+                    var_to_shape_map = reader.get_variable_to_shape_map()
+                    saved_vars = list(var_to_shape_map.keys())
+
+                    var_list = [x for x in global_vars if x.name.replace(':0', '') in saved_vars]
+                    var_list = [x for x in var_list if 'logit' not in x.name]
+                    logger.info('pretrained weights(%d) loaded : %s' % (len(var_list), network.get_pretrain_path()))
+
+                    pretrain_loader = tf.train.Saver(var_list)
+                    pretrain_loader.restore(sess, network.get_pretrain_path())
+            elif checkpoint == 'best':
+                path = get_best_checkpoint(model_path)
+                saver.restore(sess, path)
+                logger.info('restored from best checkpoint, %s' % path)
+            elif checkpoint == 'latest':
+                path = tf.train.latest_checkpoint(model_path)
+                saver.restore(sess, path)
+                logger.info('restored from latest checkpoint, %s' % path)
             else:
                 saver.restore(sess, checkpoint)
                 logger.info('restored from checkpoint, %s' % checkpoint)
 
+            step = sess.run(global_step)
+            start_e = (batchsize * step) // CellImageDataManagerTrain().size()
+
             try:
                 losses = []
-                for e in range(epoch):
+                for e in range(start_e, epoch):
                     loss_val_avg = []
                     train_cnt = 0
-                    for dp_train in ds_train.get_data():
+                    ds_train.reset_state()
+                    ds_train_d = ds_train.get_data()
+                    for dp_train in ds_train_d:
                         _, loss_val = sess.run(
                             [train_op, net_loss],
                             feed_dict=network.get_feeddict(dp_train, True)
@@ -111,6 +143,7 @@ class Trainer:
                         # for debug
                         # cv2.imshow('train', Network.visualize(dp_train[0][0], dp_train[2][0], None, dp_train[3][0], 'norm1'))
                         # cv2.waitKey(0)
+                    ds_train_d.close()
 
                     step, lr = sess.run([global_step, learning_rate_v])
                     loss_val_avg = sum(loss_val_avg) / len(loss_val_avg)
@@ -132,12 +165,15 @@ class Trainer:
                     if loss_val < 0.20 and (e + 1) % valid_interval == 0:
                         avg = []
                         for _ in range(5):
-                            for dp_valid in ds_valid.get_data():
+                            ds_valid.reset_state()
+                            ds_valid_d = ds_valid.get_data()
+                            for dp_valid in ds_valid_d:
                                 loss_val = sess.run(
                                     net_loss,
-                                    feed_dict=network.get_feeddict(dp_valid, False)
+                                    feed_dict=network.get_feeddict(dp_valid, True)
                                 )
                                 avg.append(loss_val)
+                            ds_valid_d.close()
 
                         avg = sum(avg) / len(avg)
                         logger.info('validation loss=%.4f' % (avg))
@@ -149,15 +185,19 @@ class Trainer:
                         cnt_fps = np.array((len(thr_list)), dtype=np.int32)
                         cnt_fns = np.array((len(thr_list)), dtype=np.int32)
                         pool_args = []
-                        for idx, dp_valid in tqdm(enumerate(ds_valid_full.get_data()), desc='validate using the iou metric', total=len(CellImageDataManagerValid.LIST + CellImageDataManagerValid.LIST_EXT1)):
+                        ds_valid_full.reset_state()
+                        ds_valid_full_d = ds_valid_full.get_data()
+                        for idx, dp_valid in tqdm(enumerate(ds_valid_full_d), desc='validate using the iou metric', total=len(CellImageDataManagerValid.LIST + CellImageDataManagerValid.LIST_EXT1)):
                             image = dp_valid[0]
                             instances = network.inference(sess, image)
                             pool_args.append((thr_list, instances, dp_valid[2]))
+                        ds_valid_full_d.close()
 
                         pool = Pool(processes=32)
                         cnt_results = pool.map(do_get_multiple_metric, pool_args)
                         pool.close()
                         pool.join()
+                        pool.terminate()
                         for cnt_result in cnt_results:
                             cnt_tps = cnt_tps + cnt_result[0]
                             cnt_fps = cnt_fps + cnt_result[1]
@@ -201,6 +241,7 @@ class Trainer:
             valid_metrics = []
             for idx, dp_valid in tqdm(enumerate(ds_valid_full.get_data()), total=len(CellImageDataManagerValid.LIST)):
                 image = dp_valid[0]
+                img_h, img_w = image.shape[:2]
                 labels = list(batch_to_multi_masks(dp_valid[2], transpose=False))
                 instances = network.inference(sess, image)
 
@@ -212,7 +253,7 @@ class Trainer:
                 valid_metrics.append(score)
 
                 if idx < show_valid:
-                    logger.info('score=%.3f, tp=%d, fp=%d, fn=%d' % (tp / (tp + fp + fn), tp, fp, fn))
+                    logger.info('score=%.3f, tp=%d, fp=%d, fn=%d' % (np.mean(tp / (tp + fp + fn)), np.mean(tp), np.mean(fp), np.mean(fn)))
                     cv2.imshow('valid', Network.visualize(image, dp_valid[2], instances, None))
                     cv2.waitKey(0)
             logger.info('validation ends. score=%.4f' % np.mean(valid_metrics))
@@ -266,8 +307,6 @@ class Trainer:
             d = CellImageData(single_id, (master_dir_train if set_type == 'train' else master_dir_test))
             h, w = d.img.shape[:2]
             logger.info('image size=(%d x %d)' % (w, h))
-            # n = iaa.ContrastNormalization(alpha=0.8)
-            # d.img = n.augment_image(d.img)
 
             d = network.preprocess(d)
 
@@ -277,6 +316,15 @@ class Trainer:
             instances = network.inference(sess, image)
 
             # re-inference after rescale image
+            # print('re-inference...')
+            # max_mask = get_max_size_of_masks(instances)
+            # resize_target = 50.0 / max_mask
+            # resize_target = min(3.0, resize_target)
+            #
+            # print(max_mask, resize_target)
+            # image = cv2.resize(image, None, None, resize_target, resize_target, interpolation=cv2.INTER_AREA)
+            # print(image.shape)
+            # instances = network.inference(sess, image)
 
             # resize as the original
             image = cv2.resize(image, (w, h), interpolation=cv2.INTER_AREA)

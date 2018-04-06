@@ -5,7 +5,7 @@ from tensorflow.contrib import slim
 from data_augmentation import data_to_segment_input, \
     data_to_image, random_flip_lr, random_flip_ud, random_scaling, random_affine, \
     random_color, data_to_normalize1, data_to_elastic_transform_wrapper, resize_shortedge_if_small, random_crop, \
-    center_crop, random_color2, erosion_mask, resize_shortedge, mask_size_normalize
+    center_crop, random_color2, erosion_mask, resize_shortedge, mask_size_normalize, crop_mirror, pad_if_small
 from data_feeder import CellImageDataManagerTrain, CellImageDataManagerValid, CellImageDataManagerTest
 from tensorpack.dataflow.common import BatchData, MapData, MapDataComponent
 from tensorpack.dataflow.parallel import PrefetchData
@@ -35,19 +35,18 @@ class NetworkUnetValid(NetworkBasic):
         self.inp_size = get_net_input_size(self.img_size, self.num_block)
         assert (self.inp_size - self.img_size) % 2 == 0
         self.pad_size = (self.inp_size - self.img_size) // 2
+        self.pad_preprocess = True
 
         self.batchsize = batchsize
-        self.is_color = True
-        if self.is_color:
-            self.input_batch = tf.placeholder(tf.float32, shape=(None, self.img_size, self.img_size, 3), name='image')
+        if self.pad_preprocess:
+            self.input_batch = tf.placeholder(tf.float32, shape=(None, self.img_size + self.pad_size * 2, self.img_size + self.pad_size * 2, 3), name='image')
         else:
-            self.input_batch = tf.placeholder(tf.float32, shape=(None, self.img_size, self.img_size, 1), name='image')
+            self.input_batch = tf.placeholder(tf.float32, shape=(None, self.img_size, self.img_size, 3), name='image')
         self.mask_batch = tf.placeholder(tf.float32, shape=(None, self.img_size, self.img_size, 1), name='mask')
         self.weight_batch = tf.placeholder(tf.float32, shape=(None, self.img_size, self.img_size, 1), name='weight')
         self.unused = None
         self.logit = None
         self.output = None
-        self.loss = None
         self.unet_weight = unet_weight
 
     @staticmethod
@@ -87,14 +86,15 @@ class NetworkUnetValid(NetworkBasic):
         net = self.input_batch
 
         # mirror padding
-        paddings = tf.constant([
-            [0, 0],
-            [self.pad_size, self.pad_size],
-            [self.pad_size, self.pad_size],
-            [0, 0],
-        ])
-        net = tf.pad(net, paddings, "REFLECT", name='img2inp')
-        assert net.shape[1] == self.inp_size, net.shape[2] == self.inp_size
+        if not self.pad_preprocess:
+            paddings = tf.constant([
+                [0, 0],
+                [self.pad_size, self.pad_size],
+                [self.pad_size, self.pad_size],
+                [0, 0],
+            ])
+            net = tf.pad(net, paddings, "REFLECT", name='img2inp')
+            assert net.shape[1] == self.inp_size, net.shape[2] == self.inp_size
 
         features = []
         with slim.arg_scope([slim.convolution, slim.conv2d_transpose], **conv_args):
@@ -144,36 +144,35 @@ class NetworkUnetValid(NetworkBasic):
             multi_class_labels=self.mask_batch,
             logits=self.logit,
             weights=w
-        ) + tf.reduce_mean(tf.losses.get_regularization_losses())
+        )
+        self.loss_opt = self.loss
         return net
 
     def get_input_flow(self):
         ds_train = CellImageDataManagerTrain()
-        # TODO : Resize by instance size - normalization
-        # Augmentation :
         # ds_train = MapDataComponent(ds_train, random_affine)  # TODO : no improvement?
         ds_train = MapDataComponent(ds_train, random_color)
         # ds_train = MapDataComponent(ds_train, random_scaling)
-        ds_train = MapDataComponent(ds_train, mask_size_normalize)
+        ds_train = MapDataComponent(ds_train, mask_size_normalize)  # Resize by instance size - normalization
         ds_train = MapDataComponent(ds_train, lambda x: resize_shortedge_if_small(x, self.img_size))
-        ds_train = MapDataComponent(ds_train, lambda x: random_crop(x, self.img_size, self.img_size))
+        # ds_train = MapDataComponent(ds_train, lambda x: pad_if_small(x, self.img_size)) # preseve cell's size
+        ds_train = MapDataComponent(ds_train, lambda x: random_crop(x, self.img_size, self.img_size, padding=self.pad_size if self.pad_preprocess else 0))
         ds_train = MapDataComponent(ds_train, random_flip_lr)
         ds_train = MapDataComponent(ds_train, random_flip_ud)
         # ds_train = MapDataComponent(ds_train, data_to_elastic_transform_wrapper)
         if self.unet_weight:
             ds_train = MapDataComponent(ds_train, erosion_mask)
         ds_train = MapData(ds_train, lambda x: data_to_segment_input(x, not self.is_color, self.unet_weight))
-        ds_train = PrefetchData(ds_train, 1000, 24)
+        ds_train = PrefetchData(ds_train, 256, 24)
         ds_train = BatchData(ds_train, self.batchsize)
         ds_train = MapDataComponent(ds_train, data_to_normalize1)
-        ds_train = PrefetchData(ds_train, 20, 1)
 
         ds_valid = CellImageDataManagerValid()
-        ds_valid = MapDataComponent(ds_valid, lambda x: random_crop(x, self.img_size, self.img_size))
+        ds_valid = MapDataComponent(ds_valid, lambda x: random_crop(x, self.img_size, self.img_size, padding=self.pad_size if self.pad_preprocess else 0))
         if self.unet_weight:
             ds_valid = MapDataComponent(ds_valid, erosion_mask)
         ds_valid = MapData(ds_valid, lambda x: data_to_segment_input(x, not self.is_color, self.unet_weight))
-        ds_valid = PrefetchData(ds_valid, 20, 24)
+        ds_valid = PrefetchData(ds_valid, 20, 12)
         ds_valid = BatchData(ds_valid, self.batchsize, remainder=True)
         ds_valid = MapDataComponent(ds_valid, data_to_normalize1)
 
@@ -195,10 +194,21 @@ class NetworkUnetValid(NetworkBasic):
         # TODO : Mirror Padding?
         cascades, windows = Network.sliding_window(image, self.img_size, 0.5)
 
-        outputs = tf_sess.run(self.get_output(), feed_dict={
-            self.input_batch: cascades,
-            self.is_training: False
-        })
+        # by batch
+        def chunker(seq, size):
+            return (seq[pos:pos + size] for pos in range(0, len(seq), size))
+
+        outputs = []
+        for ws in chunker(windows, 64):
+            b = []
+            for w in ws:
+                b.append(crop_mirror(image, w.x, w.y, w.w, w.h, padding=(self.pad_size if self.pad_preprocess else 0)))
+            output = tf_sess.run(self.get_output(), feed_dict={
+                self.input_batch: b,
+                self.is_training: False
+            })
+            outputs.append(output)
+        outputs = np.concatenate(outputs, axis=0)
 
         # merge multiple results
         merged_output = np.zeros((image.shape[0], image.shape[1], 1), dtype=np.float32)

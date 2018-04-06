@@ -116,7 +116,7 @@ class Network:
         if cutoff_instance > 0.0:
             filtered_instances = []
             for instance in instances:
-                if np.max(instance * output) < cutoff_instance:
+                if np.max(instance * output) < cutoff_instance:     # TODO : max or avg?
                     continue
                 filtered_instances.append(instance)
             instances = filtered_instances
@@ -179,7 +179,7 @@ class Network:
         instances = [resize_instance(instance) for instance in instances]
 
         # make sure that there are no overlappings
-        if len(instances[0].shape) == 2:
+        if len(instances) > 0 and len(instances[0].shape) == 2:
             lab_img = np.zeros((h, w), dtype=np.int32)
         else:
             lab_img = np.zeros((h, w, 1), dtype=np.int32)
@@ -231,8 +231,15 @@ class Network:
         pass
 
     @abc.abstractmethod
+    def get_loss_opt(self):
+        pass
+
+    @abc.abstractmethod
     def preprocess(self, x):
         pass
+
+    def get_pretrain_path(self):
+        return ''
 
     def get_optimize_op(self, global_step, learning_rate):
         """
@@ -253,12 +260,13 @@ class Network:
                 # not good
                 optimizer = tf.train.RMSPropOptimizer(learning_rate, decay=0.9, momentum=HyperParams.get().opt_momentum)
             elif HyperParams.get().optimizer == 'sgd':
+                # not optimized
                 optimizer = tf.train.GradientDescentOptimizer(learning_rate)
             elif HyperParams.get().optimizer == 'momentum':
                 optimizer = tf.train.MomentumOptimizer(learning_rate, momentum=HyperParams.get().opt_momentum)
             else:
                 raise Exception('invalid optimizer: %s' % HyperParams.get().optimizer)
-            optimize_op = optimizer.minimize(self.get_loss(), global_step, colocate_gradients_with_ops=True)
+            optimize_op = optimizer.minimize(self.get_loss_opt(), global_step, colocate_gradients_with_ops=True)
         return learning_rate, optimize_op
 
     def get_is_training(self):

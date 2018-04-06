@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 
 from data_augmentation import resize_shortedge, random_crop, center_crop, resize_shortedge_if_small, \
-    flip, data_to_elastic_transform, random_color2, mask_size_normalize, get_max_size_of_masks
+    flip, data_to_elastic_transform, random_color2, mask_size_normalize, get_max_size_of_masks, crop, crop_mirror
 from data_feeder import CellImageData, master_dir_train
 
 
@@ -22,12 +22,14 @@ class TestAugmentation(unittest.TestCase):
 
     def test_aug_flip_lr(self):
         points = np.where(self.d.masks[0] > 0.8)
-        flipped = flip(self.d)
+        original = self.d.img.copy()
+        orig_mask = self.d.masks
+        flipped = flip(self.d, orientation=1)
 
         for y, x in zip(*points):
-            for val1, val2 in zip(self.d.img[y, x], flipped.img[y, -x-1]):
+            for val1, val2 in zip(original[y, x], flipped.img[y, -x-1]):
                 self.assertAlmostEqual(float(val1), float(val2), delta=2)
-            val1, val2 = self.d.masks[0][y, x], flipped.masks[0][y, -x - 1]
+            val1, val2 = orig_mask[0][y, x], flipped.masks[0][y, -x - 1]
             self.assertAlmostEqual(float(val1), float(val2), delta=2)
 
     def test_random_crop(self):
@@ -44,6 +46,15 @@ class TestAugmentation(unittest.TestCase):
             [224, 224, 3]
         )
         # TODO : centered?
+
+    def test_crop_mirror(self):
+        img = crop_mirror(self.d.img, 0, 0, 224, 224)
+        self.assertListEqual(
+            list(img.shape),
+            [224, 224, 3]
+        )
+        cropped = self.d.img[0:224, 0:224, :]
+        self.assertTrue(np.array_equal(img, cropped))
 
     def test_resize_shortedge_if_small(self):
         # not changed, since its size is larger than target_size
@@ -84,7 +95,7 @@ class TestAugmentation(unittest.TestCase):
         for target_cell_size in [30, 50, 100, 150]:
             d = mask_size_normalize(self.d, target_cell_size)
 
-            self.assertAlmostEqual(get_max_size_of_masks(d), target_cell_size, delta=2.0)
+            self.assertAlmostEqual(get_max_size_of_masks(d.masks), target_cell_size, delta=2.0)
 
             # cv2.imshow('size_normalization', d.img)
             # cv2.waitKeyEx(0)

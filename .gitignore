@@ -1,3 +1,5 @@
 
 .DS_Store
 .idea/
+deeplab/pretrained/coco/model.ckpt.data-00000-of-00001
+deeplab/pretrained/coco/model.ckpt.index

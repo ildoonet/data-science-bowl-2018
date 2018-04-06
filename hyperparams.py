@@ -18,6 +18,8 @@ class HyperParams:
 
         self.opt_decay_steps = 450
         self.opt_decay_rate = 0.98          # 0.3?
+        self.opt_decay_steps_deeplab = 10000
+        self.opt_decay_power_deeplab = 0.9
         self.opt_momentum = 0.9
         self.optimizer = 'adam'
 
@@ -34,7 +36,7 @@ class HyperParams:
         self.net_bn_epsilon = 0.001
         self.net_init_stddev = 0.01
 
-        self.unet_base_feature = 24
+        self.unet_base_feature = 32
         self.unet_step_size = 4
 
         self.pre_erosion_iter = 1

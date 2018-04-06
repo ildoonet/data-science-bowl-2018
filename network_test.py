@@ -32,6 +32,10 @@ class TestNetwork(unittest.TestCase):
         self.assertListEqual(list(cascades[0].shape), [224, 224, 1])
         self.assertTrue(np.array_equal(cascades[0], img))
 
+        img = np.zeros((224, 224, 1), dtype=np.float32)
+        cascades, windows = Network.sliding_window(img, 224, 0.2)
+        self.assertEqual(len(windows), 1)
+
     def test_parse_merged_output(self):
         merged_output = np.array([
             [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],

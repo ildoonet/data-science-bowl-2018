@@ -3,9 +3,11 @@ from collections import defaultdict
 
 import sys
 import logging
+
 import numpy as np
 import os
 import cv2
+import time
 from scipy import ndimage
 from tensorpack.dataflow.common import BatchData, MapData, MapDataComponent
 from tensorpack.dataflow.base import RNGDataFlow
@@ -24,6 +26,7 @@ logger.addHandler(ch)
 
 master_dir_train = '/data/public/rw/datasets/dsb2018/train'
 master_dir_test = '/data/public/rw/datasets/dsb2018/test'
+SPLIT_IDX = 576
 
 # extra1 ref : https://www.kaggle.com/voglinio/external-h-e-data-with-mask-annotations/notebook
 extra1_dir = '/data/public/rw/datasets/dsb2018/extra_data'
@@ -38,7 +41,12 @@ class CellImageData:
 
         img_path = os.path.join(target_dir, 'images', target_id + '.' + ext)
 
-        self.img = cv2.imread(img_path, cv2.IMREAD_COLOR)
+        for _ in range(10):
+            self.img = cv2.imread(img_path, cv2.IMREAD_COLOR)
+            if self.img is not None and self.img.shape[0] > 0:
+                break
+            logger.warning('%s %s %s not read' % (target_id, ext, img_path))
+            time.sleep(1)
         self.img_h, self.img_w = self.img.shape[:2]
         assert self.img_h > 0 and self.img_w > 0
         self.masks = []
@@ -49,9 +57,15 @@ class CellImageData:
 
         for mask_file in next(os.walk(mask_dir))[2]:
             mask_path = os.path.join(target_dir, 'masks', mask_file)
-            mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+            mask = None
+            for _ in range(10):
+                mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+                if mask is None:
+                    logger.warning('%s %s %s not read' % (target_id, ext, mask_file))
+                else:
+                    break
+                time.sleep(1)
             if mask is None:
-                logger.warning('%s %s %s not read' % (target_id, ext, mask_file))
                 continue
             mask = mask >> 7    # faster than mask // 129
             self.masks.append(mask)
@@ -76,7 +90,10 @@ class CellImageData:
         return r
 
     def multi_masks_batch(self):
-        img_h, img_w = self.img.shape[:2]
+        if len(self.masks) > 0:
+            img_h, img_w = self.masks[0].shape[:2]
+        else:
+            img_h, img_w = self.img.shape[:2]
         m = np.zeros(shape=(img_h, img_w, 1), dtype=np.uint8)
         for idx, mask in enumerate(self.masks):
             m = m + mask[..., np.newaxis] * (idx + 1)
@@ -113,10 +130,12 @@ class CellImageData:
 
 
 class CellImageDataManager(RNGDataFlow):
-    def __init__(self, path, idx_list, is_shuffle=False):
+    def __init__(self, name, path, idx_list, is_shuffle=False):
+        self.name = name
         self.path = path
         self.idx_list = idx_list
         self.is_shuffle = is_shuffle
+        logger.info('%s data size = %d' % (self.name, self.size()))
 
     def size(self):
         return len(self.idx_list)
@@ -135,13 +154,13 @@ class CellImageDataManager(RNGDataFlow):
 
 
 class CellImageDataManagerTrain(CellImageDataManager):
-    LIST = list(next(os.walk(master_dir_train))[1])[:576]
+    LIST = list(next(os.walk(master_dir_train))[1])[:SPLIT_IDX]
     LIST_EXT1 = list(next(os.walk(extra1_dir))[1])
 
     def __init__(self):
         super().__init__(
+            'train',
             master_dir_train,
-            # list(next(os.walk(master_dir_train))[1])[-576:],
             CellImageDataManagerTrain.LIST + CellImageDataManagerTrain.LIST_EXT1,
             True
         )
@@ -149,14 +168,14 @@ class CellImageDataManagerTrain(CellImageDataManager):
 
 
 class CellImageDataManagerValid(CellImageDataManager):
-    LIST = list(next(os.walk(master_dir_train))[1])[576:]
+    LIST = list(next(os.walk(master_dir_train))[1])[SPLIT_IDX:]
     LIST_EXT1 = []
     # LIST_EXT1 = list(next(os.walk(extra1_dir))[1])[20:]
 
     def __init__(self):
         super().__init__(
+            'valid',
             master_dir_train,
-            # list(next(os.walk(master_dir_train))[1])[:-576],
             CellImageDataManagerValid.LIST + CellImageDataManagerValid.LIST_EXT1,
             False
         )
@@ -167,6 +186,7 @@ class CellImageDataManagerTest(CellImageDataManager):
 
     def __init__(self):
         super().__init__(
+            'test',
             master_dir_test,
             CellImageDataManagerTest.LIST,
             False
@@ -238,6 +258,11 @@ if __name__ == '__main__':
     train_set = list(next(os.walk(master_dir_train))[1])[-576:]
     valid_set = list(next(os.walk(master_dir_train))[1])[:-576]
     test_set = list(next(os.walk(master_dir_test))[1])
+
+    ds = get_default_dataflow()
+    print(dir(ds))
+    print(dir(ds.get_data()))
+    pass
 
     def histogram(set, cluster_info):
         hist = defaultdict(lambda: 0)

@@ -12,7 +12,10 @@ import sys
 
 from data_feeder import CellImageDataManagerTest, CellImageDataManagerValid
 from hyperparams import HyperParams
-from kaggle.api.kaggle_api_extended import KaggleApi
+try:
+    from kaggle.api.kaggle_api_extended import KaggleApi
+except:
+    logging.warning('~/.kaggle/kaggle.json not set. Can not submit to kaggle automatically.')
 
 
 logger = logging.getLogger('submission')
@@ -229,7 +232,7 @@ class KaggleSubmission:
         rows = []
         metrics = []
         for idx, (loss, metric) in self.valid_scores.items():
-            row = row_html.format(idx=idx, id=CellImageDataManagerValid.LIST[int(idx)], loss=loss, iou=metric)
+            row = row_html.format(idx=idx, id=CellImageDataManagerValid.LIST[int(idx)], loss=loss, iou=format(metric, '.3f'))
             rows.append(row)
             metrics.append(metric)
         html = total_html.replace('$rows$', ''.join(rows)).replace('$avg_score$', str(np.mean(metrics)))

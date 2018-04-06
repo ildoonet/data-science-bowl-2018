@@ -40,7 +40,7 @@ def random_flip_lr(data):
     s = random.randint(0, 1)
     if s == 0:
         return data
-    return flip(data, orientation=0)
+    return flip(data, orientation=1)
 
 
 def random_flip_ud(data):
@@ -52,14 +52,14 @@ def random_flip_ud(data):
     s = random.randint(0, 1)
     if s == 0:
         return data
-    return flip(data, orientation=1)
+    return flip(data, orientation=0)
 
 
 def flip(data, orientation=0):
     """
-    flip CellImageData with the specified orientation(0=horizontal, 1=vertical)
+    flip CellImageData with the specified orientation(0=vertical, 1=horizontal)
     """
-    # flip horizontally
+    # flip
     data.img = cv2.flip(data.img, orientation)
     data.masks = [cv2.flip(mask, orientation) for mask in data.masks]
     return data
@@ -75,6 +75,18 @@ def resize_shortedge_if_small(data, target_size):
     img_h, img_w = data.img.shape[:2]
     if img_h < target_size or img_w < target_size:
         data = resize_shortedge(data, target_size)
+
+    return data
+
+
+def pad_if_small(data, target_size):
+    img_h, img_w = data.img.shape[:2]
+    padding = max(target_size - img_h, target_size - img_w)
+    if padding <= 0:
+        return data
+
+    data.img = crop_mirror(data.img, 0, 0, img_w, img_h, padding)
+    data.masks = [crop_mirror(mask, 0, 0, img_w, img_h, padding) for mask in data.masks]
     return data
 
 
@@ -95,7 +107,7 @@ def resize_shortedge(data, target_size):
     return data
 
 
-def random_crop(data, w, h):
+def random_crop(data, w, h, padding=0):
     """
     Random-Crop cell image data(image, masks) with the specified size.
     :param data: CellImageData
@@ -106,12 +118,12 @@ def random_crop(data, w, h):
     x = random.randint(0, img_w - w)
     y = random.randint(0, img_h - h)
 
-    crop(data, x, y, w, h)
+    crop(data, x, y, w, h, padding=padding)
 
     return data
 
 
-def center_crop(data, w, h):
+def center_crop(data, w, h, padding=0):
     """
     Center-Crop cell image data(image, masks) with the specified size.
     :param data: CellImageData
@@ -122,12 +134,12 @@ def center_crop(data, w, h):
     x = (img_w - w) // 2
     y = (img_h - h) // 2
 
-    crop(data, x, y, w, h)
+    crop(data, x, y, w, h, padding=padding)
 
     return data
 
 
-def crop(data, x, y, w, h):
+def crop(data, x, y, w, h, padding=0):
     """
     Crop cell image data(image, masks) with the specified coordinate.
     :param data: CellImageData
@@ -138,13 +150,29 @@ def crop(data, x, y, w, h):
     img_h, img_w = data.img.shape[:2]
     assert img_h >= h and img_w >= w, 'w=%d, h=%d' % (img_w, img_h)
 
-    data.img = data.img[y:y + h, x:x + w, :]
+    data.img = crop_mirror(data.img, x, y, w, h, padding)
     data.masks = [mask[y:y + h, x:x + w] for mask in data.masks]
 
     img_h2, img_w2 = data.img.shape[:2]
-    assert img_h2 == h and img_w2 == w, 'w=%d->%d, h=%d->%d, target=(%d, %d)' % (img_w, img_w2, img_h, img_h2, w, h)
+    assert img_h2 == h+padding*2 and img_w2 == w+padding*2, 'w=%d->%d, h=%d->%d, target=(%d, %d) padding=%d' % (img_w, img_w2, img_h, img_h2, w, h, padding)
 
     return data
+
+
+def crop_mirror(img, x, y, w, h, padding=0):
+    assert x >= 0 and y >= 0 and w > 0 and h > 0
+
+    if len(img.shape) == 3:
+        padded_img = np.array([np.pad(ch, padding, 'reflect') for ch in img.transpose((2, 0, 1))]).transpose((1, 2, 0))
+    else:
+        padded_img = np.pad(img, padding, 'reflect')
+
+    assert padded_img.shape[0] == img.shape[0] + padding * 2, (img.shape, padded_img.shape)
+    assert padded_img.shape[1] == img.shape[1] + padding * 2, (img.shape, padded_img.shape)
+    if len(img.shape) == 3:
+        assert padded_img.shape[2] == img.shape[2], (img.shape, padded_img.shape)
+    cropped_img = padded_img[y:y+h+padding*2, x:x+w+padding*2]
+    return cropped_img
 
 
 def random_scaling(data):
@@ -154,7 +182,7 @@ def random_scaling(data):
     :return: CellImageData
     """
     s = random.randint(0, 1)
-    if s == 0:
+    if s <= 0:
         return data
     img_h, img_w = data.img.shape[:2]
     scale_f1 = HyperParams.get().pre_scale_f1
@@ -174,8 +202,8 @@ def random_affine(data):
     :param data: CellImageData
     :return: CellImageData
     """
-    s = random.randint(0, 1)
-    if s <= 0:
+    s = random.randint(0, 2)
+    if s >= 1:
         return data
     rand_rotate = np.random.randint(-HyperParams.get().pre_affine_rotate, HyperParams.get().pre_affine_rotate)
     rand_shear = np.random.randint(-HyperParams.get().pre_affine_shear, HyperParams.get().pre_affine_shear)
@@ -343,28 +371,30 @@ def data_to_elastic_transform(data, alpha, sigma, alpha_affine, random_state=Non
 def mask_size_normalize(data, target_size=None):
     s = random.randint(0, 1)
     if s <= 0 and target_size is None:
-        # TODO ?
         data = random_scaling(data)
         return data
 
     # getting maximum size of masks
-    maximum_size = get_max_size_of_masks(data)
+    maximum_size = get_max_size_of_masks(data.masks)
+    if maximum_size <= 1:
+        return data
 
     # normalize by the target size
     if target_size is None:
         target_size = random.uniform(HyperParams.get().pre_size_norm_min, HyperParams.get().pre_size_norm_max)
-    size_factor = target_size / maximum_size
-
     shorter_edge_size = min(data.img.shape[:2])
-    target_edge_size = int(shorter_edge_size * size_factor)
-    data = resize_shortedge(data, target_edge_size)
+    size_factor = target_size / maximum_size
+    size_factor = min(5000 / shorter_edge_size, size_factor)
+    size_factor = max(120 / shorter_edge_size, size_factor)
 
-    # TODO : resize to basic size(224?) with mirroring
+    target_edge_size = int(shorter_edge_size * size_factor)
+
+    data = resize_shortedge(data, target_edge_size)
 
     return data
 
 
-def get_max_size_of_masks(data):
+def get_max_size_of_masks(masks):
     def _bbox(img):
         rows = np.any(img, axis=1)
         cols = np.any(img, axis=0)
@@ -374,11 +404,11 @@ def get_max_size_of_masks(data):
         return rmin, rmax, cmin, cmax
 
     maximum_size = 1  # in pixel
-    for mask in data.masks:
+    for mask in masks:
         rmin, rmax, cmin, cmax = _bbox(mask)
         maximum_size = max(maximum_size, rmax - rmin)
         maximum_size = max(maximum_size, cmax - cmin)
     return maximum_size
 
-# TODO : Image Drop Augmentation, add/multiply some values? sharpen?
-# TODO : Thick line Occlusion, imgaug pepper? dropout? blur? constrast?
+# TODO : Image Drop Augmentation, imgaug pepper? dropout? blur? constrast?
+# TODO : Thick line Occlusion, add/multiply some values? sharpen?

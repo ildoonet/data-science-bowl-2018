@@ -30,6 +30,7 @@ class NetworkBasic(Network):
         self.logit = None
         self.output = None
         self.loss = None
+        self.loss_opt = None
         self.unet_weight = unet_weight
 
     def get_placeholders(self):
@@ -123,6 +124,7 @@ class NetworkBasic(Network):
             weights=w,
             reduction=Reduction.SUM_BY_NONZERO_WEIGHTS
         )
+        self.loss_opt = self.loss
         return net
 
     def get_input_flow(self):
@@ -189,8 +191,11 @@ class NetworkBasic(Network):
     def get_loss(self):
         return self.loss
 
+    def get_loss_opt(self):
+        return self.loss_opt
+
     def preprocess(self, x):
-        x = resize_shortedge_if_small_224(x)
+        x = resize_shortedge_if_small(x, 224)
         x = data_to_normalize1(x)
         return x
 
