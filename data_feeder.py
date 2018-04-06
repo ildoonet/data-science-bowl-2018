@@ -25,6 +25,7 @@ logger.handlers = []
 logger.addHandler(ch)
 
 master_dir_train = '/data/public/rw/datasets/dsb2018/train'
+# master_dir_train = '/data/public/rw/datasets/dsb2018/external_data/crowd_sourced/train'
 master_dir_test = '/data/public/rw/datasets/dsb2018/test'
 SPLIT_IDX = 576
 
