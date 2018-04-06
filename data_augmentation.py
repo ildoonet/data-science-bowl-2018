@@ -394,20 +394,24 @@ def mask_size_normalize(data, target_size=None):
     return data
 
 
+def get_rect_of_mask(img):
+    rows = np.any(img, axis=1)
+    cols = np.any(img, axis=0)
+    rmin, rmax = np.where(rows)[0][[0, -1]]
+    cmin, cmax = np.where(cols)[0][[0, -1]]
+    return rmin, rmax, cmin, cmax
+
+
+def get_size_of_mask(img):
+    rmin, rmax, cmin, cmax = get_rect_of_mask(img)
+    return max([rmax - rmin, cmax - cmin])
+
+
 def get_max_size_of_masks(masks):
-    def _bbox(img):
-        rows = np.any(img, axis=1)
-        cols = np.any(img, axis=0)
-        rmin, rmax = np.where(rows)[0][[0, -1]]
-        cmin, cmax = np.where(cols)[0][[0, -1]]
-
-        return rmin, rmax, cmin, cmax
-
     maximum_size = 1  # in pixel
     for mask in masks:
-        rmin, rmax, cmin, cmax = _bbox(mask)
-        maximum_size = max(maximum_size, rmax - rmin)
-        maximum_size = max(maximum_size, cmax - cmin)
+        size = get_size_of_mask(mask)
+        maximum_size = max(maximum_size, size)
     return maximum_size
 
 # TODO : Image Drop Augmentation, imgaug pepper? dropout? blur? constrast?
