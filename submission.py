@@ -250,7 +250,7 @@ class KaggleSubmission:
         rows = []
         metrics = []
         for idx, (loss, metric, metric_desc) in self.train_scores.items():
-            row = row_html.format(idx=idx, loss=loss, iou=format(metric, '.3f'), iou2='<br/>'.join(metric_desc))
+            row = row_html.format(idx=idx, iou=format(metric, '.3f'), iou2='<br/>'.join(metric_desc))
             rows.append(row)
             metrics.append(metric)
         html = total_html.replace('$rows$', ''.join(rows)).replace('$avg_score$', str(np.mean(metrics)))
@@ -264,7 +264,7 @@ class KaggleSubmission:
         rows = []
         metrics = []
         for idx, (loss, metric, metric_desc) in self.valid_scores.items():
-            row = row_html.format(idx=idx, loss=loss, iou=format(metric, '.3f'), iou2='<br/>'.join(metric_desc))
+            row = row_html.format(idx=idx, iou=format(metric, '.3f'), iou2='<br/>'.join(metric_desc))
             rows.append(row)
             metrics.append(metric)
         html = total_html.replace('$rows$', ''.join(rows)).replace('$avg_score$', str(np.mean(metrics)))
