@@ -80,11 +80,8 @@ def get_iou2(a, b):
         a = a[..., np.newaxis]
     if len(b.shape) == 2:
         b = b[..., np.newaxis]
-    a[a > 0] = 1.
-    b[b > 0] = 1.
-    intersection = a * b
-    union = a + b
-    union[union > 0] = 1.
+    intersection = a & b
+    union = a | b
     intersection = np.sum(intersection)
     if intersection == 0:
         return 0.0
