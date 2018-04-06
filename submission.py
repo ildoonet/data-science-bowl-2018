@@ -29,6 +29,9 @@ logger.handlers = []
 logger.addHandler(ch)
 
 
+thr_list = np.arange(0.5, 1.0, 0.05)
+
+
 def rle_encoding(x):
     """
     reference : https://www.kaggle.com/keegil/keras-u-net-starter-lb-0-277
@@ -159,6 +162,7 @@ class KaggleSubmission:
         self.name = name
         self.test_ids = []
         self.rles = []
+        self.train_scores = OrderedDict()
         self.valid_scores = OrderedDict()
         self.test_scores = OrderedDict()
 
@@ -166,10 +170,16 @@ class KaggleSubmission:
         os.makedirs(os.path.join(KaggleSubmission.BASEPATH, self.name), exist_ok=True)
         logger.info('creating: %s' % os.path.join(KaggleSubmission.BASEPATH, self.name, 'valid'))
         os.makedirs(os.path.join(KaggleSubmission.BASEPATH, self.name, 'valid'), exist_ok=True)
+        logger.info('creating: %s' % os.path.join(KaggleSubmission.BASEPATH, self.name, 'train'))
+        os.makedirs(os.path.join(KaggleSubmission.BASEPATH, self.name, 'train'), exist_ok=True)
 
-    def save_valid_image(self, idx, image, loss=0.0, score=0.0):
+    def save_train_image(self, idx, image, loss=0.0, score=0.0, score_desc=[]):
+        cv2.imwrite(os.path.join(KaggleSubmission.BASEPATH, self.name, 'train', idx + '.jpg'), image)
+        self.train_scores[idx] = (loss, score, score_desc)
+
+    def save_valid_image(self, idx, image, loss=0.0, score=0.0, score_desc=[]):
         cv2.imwrite(os.path.join(KaggleSubmission.BASEPATH, self.name, 'valid', idx + '.jpg'), image)
-        self.valid_scores[idx] = (loss, score)
+        self.valid_scores[idx] = (loss, score, score_desc)
 
     def save_image(self, idx, image, loss=0.0):
         cv2.imwrite(os.path.join(KaggleSubmission.BASEPATH, self.name, idx + '.jpg'), image)
@@ -199,6 +209,10 @@ class KaggleSubmission:
         filepath = os.path.join(KaggleSubmission.BASEPATH, self.name, 'config.json')
         return filepath
 
+    def get_train_htmlpath(self):
+        filepath = os.path.join(KaggleSubmission.BASEPATH, self.name, 'train', 'train.html')
+        return filepath
+
     def get_valid_htmlpath(self):
         filepath = os.path.join(KaggleSubmission.BASEPATH, self.name, 'valid', 'valid.html')
         return filepath
@@ -226,20 +240,34 @@ class KaggleSubmission:
         f.write(a)
         f.close()
 
-        # save validation results
         total_html = "<html><body>Average Score=$avg_score$<br/><br/><table>" \
                      "  <tr>" \
-                     "      <th>IDX</th><th>ID</th><th>Loss</th><th>IOU Metric</th><th>Image</th>" \
+                     "      <th>ID</th><th>Image</th>" \
                      "  </tr>" \
                      "  $rows$" \
                      "</table></body></html>"
         row_html = "<tr>" \
-                   "    <td>{idx}</td><td>{id}</td><td>{loss}</td><td>{iou}</td><td><img src=\"./{idx}.jpg\"</td>" \
+                   "    <td>{idx}<br/><br/>{iou}<br/>{iou2}</td><td><img src=\"./{idx}.jpg\"</td>" \
                    "</tr>"
+        # save training results
         rows = []
         metrics = []
-        for idx, (loss, metric) in self.valid_scores.items():
-            row = row_html.format(idx=idx, id=CellImageDataManagerValid.LIST[int(idx)], loss=loss, iou=format(metric, '.3f'))
+        for idx, (loss, metric, metric_desc) in self.train_scores.items():
+            row = row_html.format(idx=idx, loss=loss, iou=format(metric, '.3f'), iou2='<br/>'.join(metric_desc))
+            rows.append(row)
+            metrics.append(metric)
+        html = total_html.replace('$rows$', ''.join(rows)).replace('$avg_score$', str(np.mean(metrics)))
+
+        filepath = self.get_train_htmlpath()
+        f = open(filepath, 'w')
+        f.write(html)
+        f.close()
+
+        # save validation results
+        rows = []
+        metrics = []
+        for idx, (loss, metric, metric_desc) in self.valid_scores.items():
+            row = row_html.format(idx=idx, loss=loss, iou=format(metric, '.3f'), iou2='<br/>'.join(metric_desc))
             rows.append(row)
             metrics.append(metric)
         html = total_html.replace('$rows$', ''.join(rows)).replace('$avg_score$', str(np.mean(metrics)))
