@@ -429,3 +429,18 @@ def random_add_thick_area(data):
     data.img = cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0)
     return data
 
+
+def random_transparent(data):
+    s = random.randint(0, 9)
+    if 0 < s:
+        return data
+
+    img = data.img.copy()
+    val = np.random.randint(3, 5) * 0.1
+    img = (img * val).astype(np.uint8)
+    img[np.logical_and(data.img >= 1, img == 0)] = 1
+    data.img = img
+    return data
+
+
+

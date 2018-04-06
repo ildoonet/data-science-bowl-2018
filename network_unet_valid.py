@@ -6,7 +6,7 @@ from data_augmentation import data_to_segment_input, \
     data_to_image, random_flip_lr, random_flip_ud, random_scaling, random_affine, \
     random_color, data_to_normalize1, data_to_elastic_transform_wrapper, resize_shortedge_if_small, random_crop, \
     center_crop, random_color2, erosion_mask, resize_shortedge, mask_size_normalize, crop_mirror, pad_if_small, \
-    random_add_thick_area
+    random_add_thick_area, random_transparent
 from data_feeder import CellImageDataManagerTrain, CellImageDataManagerValid, CellImageDataManagerTest
 from tensorpack.dataflow.common import BatchData, MapData, MapDataComponent
 from tensorpack.dataflow.parallel import PrefetchData
@@ -161,6 +161,7 @@ class NetworkUnetValid(NetworkBasic):
         ds_train = MapDataComponent(ds_train, random_flip_lr)
         ds_train = MapDataComponent(ds_train, random_flip_ud)
         ds_train = MapDataComponent(ds_train, random_add_thick_area)
+        ds_train = MapDataComponent(ds_train, random_transparent)
         # ds_train = MapDataComponent(ds_train, data_to_elastic_transform_wrapper)
         if self.unet_weight:
             ds_train = MapDataComponent(ds_train, erosion_mask)
