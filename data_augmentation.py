@@ -426,5 +426,6 @@ def random_add_thick_area(data):
     cv2.rectangle(overlay, tuple(pt1), tuple(pt2), (255, 255, 255), thickness=cv2.FILLED)
 
     alpha = np.random.random()
-    return cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0)
+    data.img = cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0)
+    return data
 

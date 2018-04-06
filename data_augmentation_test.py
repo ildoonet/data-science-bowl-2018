@@ -104,8 +104,8 @@ class TestAugmentation(unittest.TestCase):
     def test_add_thick_area(self):
         cv2.imshow('original', self.d.img)
         cv2.waitKey(0)
-        area = random_add_thick_area(self.d)
-        cv2.imshow('image', area)
+        data = random_add_thick_area(self.d)
+        cv2.imshow('image', data.img)
         cv2.waitKey(0)
 
 
