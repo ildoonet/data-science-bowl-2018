@@ -69,8 +69,8 @@ def get_iou1(a, b):
 def get_iou2(a, b):
     rmin1, rmax1, cmin1, cmax1 = get_rect_of_mask(a)
     rmin2, rmax2, cmin2, cmax2 = get_rect_of_mask(b)
-    if not ((rmin1 < rmin2 < rmax1 or rmin1 < rmax2 < rmax1) or (cmin1 < cmin2 < cmax1 or cmin1 < cmax2 < cmax1) or \
-        (rmin2 < rmin1 < rmax2 or rmin2 < rmax1 < rmax2) or (cmin2 < cmin1 < cmax2 or cmin2 < cmax1 < cmax2)):
+    if not ((rmin1 <= rmin2 <= rmax1 or rmin1 <= rmax2 <= rmax1) or (cmin1 <= cmin2 <= cmax1 or cmin1 <= cmax2 <= cmax1) or
+                (rmin2 <= rmin1 <= rmax2 or rmin2 <= rmax1 <= rmax2) or (cmin2 <= cmin1 <= cmax2 or cmin2 <= cmax1 <= cmax2)):
         return 0.0
 
     if len(a.shape) == 2:
