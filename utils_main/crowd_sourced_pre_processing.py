@@ -1,11 +1,10 @@
 import os
 import cv2
 import numpy as np
+import shutil
 
 from skimage.morphology import label
 from shutil import copyfile
-
-# from PIL import Image
 
 
 def main():
@@ -38,6 +37,9 @@ def main():
             img = cv2.imread(os.path.join(root, fname), cv2.IMREAD_COLOR)
             try:
                 labels = label(img, connectivity=2)
+                if labels.max() == 0:
+                    shutil.rmtree(os.path.join(label_out_dir, file_id))
+                    continue
                 for i in range(1, labels.max() + 1):
                     label_img = (labels == i).astype(np.uint8) * 255
 
@@ -45,6 +47,9 @@ def main():
                     cv2.imwrite(mask_fname, label_img)
             except Exception as e:
                 print(e)
+
+
+
 
 
 

@@ -24,10 +24,11 @@ ch.setFormatter(formatter)
 logger.handlers = []
 logger.addHandler(ch)
 
-master_dir_train = '/data/public/rw/datasets/dsb2018/train'
-# master_dir_train = '/data/public/rw/datasets/dsb2018/external_data/crowd_sourced/train'
+# master_dir_train = '/data/public/rw/datasets/dsb2018/train'
+master_dir_train = '/data/public/rw/datasets/dsb2018/origin_ext_train_kmeans'
+master_dir_valid = '/data/public/rw/datasets/dsb2018/origin_ext_valid_kmeans'
 master_dir_test = '/data/public/rw/datasets/dsb2018/test'
-SPLIT_IDX = 576
+# SPLIT_IDX = 1100
 
 # extra1 ref : https://www.kaggle.com/voglinio/external-h-e-data-with-mask-annotations/notebook
 extra1_dir = '/data/public/rw/datasets/dsb2018/extra_data'
@@ -155,7 +156,7 @@ class CellImageDataManager(RNGDataFlow):
 
 
 class CellImageDataManagerTrain(CellImageDataManager):
-    LIST = list(next(os.walk(master_dir_train))[1])[:SPLIT_IDX]
+    LIST = list(next(os.walk(master_dir_train))[1])
     LIST_EXT1 = list(next(os.walk(extra1_dir))[1])
 
     def __init__(self):
@@ -169,14 +170,14 @@ class CellImageDataManagerTrain(CellImageDataManager):
 
 
 class CellImageDataManagerValid(CellImageDataManager):
-    LIST = list(next(os.walk(master_dir_train))[1])[SPLIT_IDX:]
+    LIST = list(next(os.walk(master_dir_valid))[1])
     LIST_EXT1 = []
     # LIST_EXT1 = list(next(os.walk(extra1_dir))[1])[20:]
 
     def __init__(self):
         super().__init__(
             'valid',
-            master_dir_train,
+            master_dir_valid,
             CellImageDataManagerValid.LIST + CellImageDataManagerValid.LIST_EXT1,
             False
         )
@@ -254,10 +255,9 @@ def batch_to_multi_masks(multi_masks_batch, transpose=True):
 
 
 if __name__ == '__main__':
-    split_idx = 576
-    print('total size=', len(list(next(os.walk(master_dir_train))[1])))
-    train_set = list(next(os.walk(master_dir_train))[1])[-576:]
-    valid_set = list(next(os.walk(master_dir_train))[1])[:-576]
+    train_set = list(next(os.walk(master_dir_train))[1])
+    valid_set = list(next(os.walk(master_dir_valid))[1])
+    print('total size=', len(train_set) + len(valid_set))
     test_set = list(next(os.walk(master_dir_test))[1])
 
     ds = get_default_dataflow()
