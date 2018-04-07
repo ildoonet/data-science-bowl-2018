@@ -36,7 +36,7 @@ def main():
 
             img = cv2.imread(os.path.join(root, fname), cv2.IMREAD_COLOR)
             try:
-                labels = label(img, connectivity=2)
+                labels = label(img, connectivity=1)
                 if labels.max() == 0:
                     shutil.rmtree(os.path.join(label_out_dir, file_id))
                     continue
