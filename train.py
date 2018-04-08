@@ -44,7 +44,7 @@ class Trainer:
             batchsize=16, learning_rate=0.0001, early_rejection=False,
             valid_interval=10, tag='', show_train=0, show_valid=0, show_test=0, save_result=True, checkpoint='',
             pretrain=False,
-            logdir='/data/public/rw/kaggle-data-science-bowl/logs/'+datetime.datetime.now().strftime("%Y%m%d-%H%M%S"),
+            logdir='/data/public/rw/kaggle-data-science-bowl/logs/',
             **kwargs):
         if model == 'basic':
             network = NetworkBasic(batchsize, unet_weight=True)
@@ -100,9 +100,9 @@ class Trainer:
         s_valid = tf.summary.merge_all('valid')
 
         with tf.Session(config=config) as sess:
-            train_writer = tf.summary.FileWriter(logdir + '/train',
+            train_writer = tf.summary.FileWriter(logdir + name + '/train',
                                                  sess.graph)
-            valid_writer = tf.summary.FileWriter(logdir + '/valid')
+            valid_writer = tf.summary.FileWriter(logdir + name + '/valid')
 
             logger.info('training started+')
             if not checkpoint:
