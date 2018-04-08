@@ -44,6 +44,7 @@ class Trainer:
             batchsize=16, learning_rate=0.0001, early_rejection=False,
             valid_interval=10, tag='', show_train=0, show_valid=0, show_test=0, save_result=True, checkpoint='',
             pretrain=False,
+            logdir='/data/public/rw/kaggle-data-science-bowl/logs/'+datetime.datetime.now().strftime("%Y%m%d-%H%M%S"),
             **kwargs):
         if model == 'basic':
             network = NetworkBasic(batchsize, unet_weight=True)
@@ -92,7 +93,17 @@ class Trainer:
         saver = tf.train.Saver()
         config = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)
         m_epoch = 0
+
+        # tensorboard
+        tf.summary.scalar('loss', net_loss, collections=['train', 'valid'])
+        s_train = tf.summary.merge_all('train')
+        s_valid = tf.summary.merge_all('valid')
+
         with tf.Session(config=config) as sess:
+            train_writer = tf.summary.FileWriter(logdir + '/train',
+                                                 sess.graph)
+            valid_writer = tf.summary.FileWriter(logdir + '/valid')
+
             logger.info('training started+')
             if not checkpoint:
                 sess.run(tf.global_variables_initializer())
@@ -134,8 +145,8 @@ class Trainer:
                     ds_train.reset_state()
                     ds_train_d = ds_train.get_data()
                     for dp_train in ds_train_d:
-                        _, loss_val = sess.run(
-                            [train_op, net_loss],
+                        _, loss_val, summary_train = sess.run(
+                            [train_op, net_loss, s_train],
                             feed_dict=network.get_feeddict(dp_train, True)
                         )
                         loss_val_avg.append(loss_val)
@@ -148,8 +159,9 @@ class Trainer:
                     step, lr = sess.run([global_step, learning_rate_v])
                     loss_val_avg = sum(loss_val_avg) / len(loss_val_avg)
                     logger.info('training %d epoch %d step, lr=%.8f loss=%.4f train_iter=%d' % (
-                    e + 1, step, lr, loss_val_avg, train_cnt))
+                        e + 1, step, lr, loss_val_avg, train_cnt))
                     losses.append(loss_val)
+                    train_writer.add_summary(summary_train, global_step=step)
 
                     if early_rejection and len(losses) > 100 and losses[len(losses) - 100] * 1.05 < loss_val_avg:
                         logger.info('not improved, stop at %d' % e)
@@ -168,10 +180,11 @@ class Trainer:
                             ds_valid.reset_state()
                             ds_valid_d = ds_valid.get_data()
                             for dp_valid in ds_valid_d:
-                                loss_val = sess.run(
-                                    net_loss,
+                                loss_val, summary_valid = sess.run(
+                                    [net_loss, s_valid],
                                     feed_dict=network.get_feeddict(dp_valid, True)
                                 )
+
                                 avg.append(loss_val)
                             ds_valid_d.close()
 
@@ -179,6 +192,7 @@ class Trainer:
                         logger.info('validation loss=%.4f' % (avg))
                         if best_loss_val > avg:
                             best_loss_val = avg
+                        valid_writer.add_summary(summary_valid, global_step=step)
 
                     if avg < 0.16 and e > 50 and (e + 1) % valid_interval == 0:
                         cnt_tps = np.array((len(thr_list)), dtype=np.int32),
@@ -187,7 +201,9 @@ class Trainer:
                         pool_args = []
                         ds_valid_full.reset_state()
                         ds_valid_full_d = ds_valid_full.get_data()
-                        for idx, dp_valid in tqdm(enumerate(ds_valid_full_d), desc='validate using the iou metric', total=len(CellImageDataManagerValid.LIST + CellImageDataManagerValid.LIST_EXT1)):
+                        for idx, dp_valid in tqdm(enumerate(ds_valid_full_d), desc='validate using the iou metric',
+                                                  total=len(
+                                                      CellImageDataManagerValid.LIST + CellImageDataManagerValid.LIST_EXT1)):
                             image = dp_valid[0]
                             instances = network.inference(sess, image)
                             pool_args.append((thr_list, instances, dp_valid[2]))
