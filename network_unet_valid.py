@@ -28,9 +28,24 @@ def get_net_input_size(image_size, num_block):
 
 
 class NetworkUnetValid(NetworkBasic):
-    def __init__(self, batchsize, unet_weight):
+    def __init__(self,
+                 train_data_path,
+                 valid_data_path,
+                 test_data_path,
+                 batchsize,
+                 unet_weight,
+                 data_aug_transparent=False,
+                 data_aug_thick_area=False):
         super().__init__(batchsize, unet_weight)
 
+        self.train_data_path = train_data_path
+        self.valid_data_path = valid_data_path
+        self.test_data_path = test_data_path
+
+        self.data_aug_transparent = data_aug_transparent
+        print('data_aug_transparent:', data_aug_transparent)
+        self.data_aug_thick_area = data_aug_thick_area
+        print('data_aug_thick_area:', data_aug_thick_area)
         self.img_size = 228
         self.num_block = HyperParams.get().unet_step_size
         self.inp_size = get_net_input_size(self.img_size, self.num_block)
@@ -150,7 +165,7 @@ class NetworkUnetValid(NetworkBasic):
         return net
 
     def get_input_flow(self):
-        ds_train = CellImageDataManagerTrain()
+        ds_train = CellImageDataManagerTrain(self.train_data_path)
         # ds_train = MapDataComponent(ds_train, random_affine)  # TODO : no improvement?
         ds_train = MapDataComponent(ds_train, random_color)
         # ds_train = MapDataComponent(ds_train, random_scaling)
@@ -160,8 +175,10 @@ class NetworkUnetValid(NetworkBasic):
         ds_train = MapDataComponent(ds_train, lambda x: random_crop(x, self.img_size, self.img_size, padding=self.pad_size if self.pad_preprocess else 0))
         ds_train = MapDataComponent(ds_train, random_flip_lr)
         ds_train = MapDataComponent(ds_train, random_flip_ud)
-        ds_train = MapDataComponent(ds_train, random_add_thick_area)
-        ds_train = MapDataComponent(ds_train, random_transparent)
+        if self.data_aug_thick_area:
+            ds_train = MapDataComponent(ds_train, random_add_thick_area)
+        if self.data_aug_transparent:
+            ds_train = MapDataComponent(ds_train, random_transparent)
         # ds_train = MapDataComponent(ds_train, data_to_elastic_transform_wrapper)
         if self.unet_weight:
             ds_train = MapDataComponent(ds_train, erosion_mask)
@@ -170,7 +187,7 @@ class NetworkUnetValid(NetworkBasic):
         ds_train = BatchData(ds_train, self.batchsize)
         ds_train = MapDataComponent(ds_train, data_to_normalize1)
 
-        ds_valid = CellImageDataManagerValid()
+        ds_valid = CellImageDataManagerValid(self.valid_data_path)
         ds_valid = MapDataComponent(ds_valid, lambda x: random_crop(x, self.img_size, self.img_size, padding=self.pad_size if self.pad_preprocess else 0))
         if self.unet_weight:
             ds_valid = MapDataComponent(ds_valid, erosion_mask)
@@ -179,13 +196,13 @@ class NetworkUnetValid(NetworkBasic):
         ds_valid = BatchData(ds_valid, self.batchsize, remainder=True)
         ds_valid = MapDataComponent(ds_valid, data_to_normalize1)
 
-        ds_valid2 = CellImageDataManagerValid()
+        ds_valid2 = CellImageDataManagerValid(self.valid_data_path)
         ds_valid2 = MapDataComponent(ds_valid2, lambda x: resize_shortedge_if_small(x, self.img_size))
         # ds_valid2 = MapDataComponent(ds_valid2, lambda x: resize_shortedge(x, self.img_size))
         ds_valid2 = MapData(ds_valid2, lambda x: data_to_segment_input(x, not self.is_color))
         ds_valid2 = MapDataComponent(ds_valid2, data_to_normalize1)
 
-        ds_test = CellImageDataManagerTest()
+        ds_test = CellImageDataManagerTest(self.test_data_path)
         ds_test = MapDataComponent(ds_test, lambda x: resize_shortedge_if_small(x, self.img_size))
         # ds_test = MapDataComponent(ds_test, lambda x: resize_shortedge(x, self.img_size))
         ds_test = MapData(ds_test, lambda x: data_to_image(x, not self.is_color))
