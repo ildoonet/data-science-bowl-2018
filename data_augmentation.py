@@ -123,6 +123,10 @@ def random_crop(data, w, h, padding=0):
     return data
 
 
+def random_crop_224(data):
+    return random_crop(data, 224, 224)
+
+
 def center_crop(data, w, h, padding=0):
     """
     Center-Crop cell image data(image, masks) with the specified size.

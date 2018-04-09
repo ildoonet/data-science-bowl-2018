@@ -24,9 +24,9 @@ ch.setFormatter(formatter)
 logger.handlers = []
 logger.addHandler(ch)
 
-# master_dir_train = '/data/public/rw/datasets/dsb2018/train'
-master_dir_train = '/data/public/rw/datasets/dsb2018/origin_ext_train_kmeans'
-master_dir_valid = '/data/public/rw/datasets/dsb2018/origin_ext_valid_kmeans'
+master_dir_train_all = '/data/public/rw/datasets/dsb2018/external_data/crowd_sourced/train_100_gray'
+master_dir_train = '/data/public/rw/datasets/dsb2018/train'
+master_dir_valid = '/data/public/rw/datasets/dsb2018/train'
 master_dir_test = '/data/public/rw/datasets/dsb2018/test'
 # SPLIT_IDX = 1100
 
@@ -180,6 +180,19 @@ class CellImageDataManagerValid(CellImageDataManager):
             master_dir_valid,
             CellImageDataManagerValid.LIST + CellImageDataManagerValid.LIST_EXT1,
             False
+        )
+
+
+class CellImageDataManagerTrainAll(CellImageDataManager):
+    LIST = list(next(os.walk(master_dir_train_all))[1])
+    # LIST_EXT1 = list(next(os.walk(extra1_dir))[1])
+
+    def __init__(self):
+        super().__init__(
+            'train',
+            master_dir_train_all,
+            CellImageDataManagerTrainAll.LIST, # + CellImageDataManagerTrainAll.LIST_EXT1,
+            True
         )
 
 
