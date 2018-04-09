@@ -10,7 +10,7 @@ from shutil import copyfile
 def main():
     origin_dir = '/data/public/rw/datasets/dsb2018/external_data/crowd_sourced/PSB_2015_ImageSize_400/Original_Images'
     label_dir = '/data/public/rw/datasets/dsb2018/external_data/crowd_sourced/PSB_2015_ImageSize_400/Nuclei_Segmentation/AutomatedMethodSegmentation'
-    label_out_dir = '/data/public/rw/datasets/dsb2018/external_data/crowd_sourced/train'
+    label_out_dir = '/data/public/rw/datasets/dsb2018/external_data/crowd_sourced/train_gray'
 
     for root, dirs, filenames in os.walk(origin_dir):
         for fname in filenames:
@@ -20,7 +20,7 @@ def main():
             os.makedirs(images_dir, exist_ok=True)
 
             try:
-                img = cv2.imread(os.path.join(root, fname), cv2.IMREAD_COLOR)
+                img = cv2.imread(os.path.join(root, fname), cv2.IMREAD_GRAYSCALE)
                 cv2.imwrite(os.path.join(label_out_dir, file_id, 'images', file_id + '.png'), img)
             except Exception as e:
                 print(e)
@@ -47,10 +47,6 @@ def main():
                     cv2.imwrite(mask_fname, label_img)
             except Exception as e:
                 print(e)
-
-
-
-
 
 
 if __name__ == '__main__':

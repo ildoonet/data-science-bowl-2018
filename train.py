@@ -13,8 +13,8 @@ from tqdm import tqdm
 
 from checkmate.checkmate import BestCheckpointSaver, get_best_checkpoint
 from data_augmentation import get_max_size_of_masks, mask_size_normalize
-from data_feeder import batch_to_multi_masks, CellImageData, master_dir_test, master_dir_train, \
-    CellImageDataManagerValid, CellImageDataManagerTrain
+from data_feeder import batch_to_multi_masks, CellImageData, master_dir_test, master_dir_train, CellImageDataManager, \
+    CellImageDataManagerTrain, CellImageDataManagerValid
 from hyperparams import HyperParams
 from network import Network
 from network_basic import NetworkBasic
@@ -40,18 +40,32 @@ class Trainer:
     def validate(self, model, checkpoint, tag=''):
         self.run(model, epoch=0, tag=tag, checkpoint=checkpoint, save_result=True)
 
-    def run(self, model, epoch=600,
+    def run(self, model='unet', train_data_path='/data/public/rw/datasets/dsb2018/train',
+            valid_data_path='/data/public/rw/datasets/dsb2018/valid',
+            test_data_path='/data/public/rw/datasets/dsb2018/test',
+            epoch=600,
             batchsize=16, learning_rate=0.0001, early_rejection=False,
             valid_interval=10, tag='', show_train=0, show_valid=0, show_test=0, save_result=True, checkpoint='',
-            pretrain=False,
+            pretrain=False, data_aug_transparent=False, data_aug_thick_area=False,
             logdir='/data/public/rw/kaggle-data-science-bowl/logs/',
             **kwargs):
+        print('[args] train_data_path:', train_data_path)
+        print('[args] valid_data_path:', valid_data_path)
+        print('[args] test_data_path:', test_data_path)
+        print('[args] data_aug_transparent:', data_aug_transparent)
+        print('[args] data_aug_thick_area:', data_aug_thick_area)
         if model == 'basic':
             network = NetworkBasic(batchsize, unet_weight=True)
         elif model == 'simple_unet':
             network = NetworkUnet(batchsize, unet_weight=True)
         elif model == 'unet':
-            network = NetworkUnetValid(batchsize, unet_weight=True)
+            network = NetworkUnetValid(train_data_path=train_data_path,
+                                       valid_data_path=valid_data_path,
+                                       test_data_path=test_data_path,
+                                       batchsize=batchsize,
+                                       unet_weight=True,
+                                       data_aug_transparent=data_aug_transparent,
+                                       data_aug_thick_area=data_aug_thick_area)
         elif model == 'deeplabv3p':
             network = NetworkDeepLabV3p(batchsize)
         elif model == 'simple_fusion':
@@ -135,7 +149,7 @@ class Trainer:
                 logger.info('restored from checkpoint, %s' % checkpoint)
 
             step = sess.run(global_step)
-            start_e = (batchsize * step) // CellImageDataManagerTrain().size()
+            start_e = (batchsize * step) // CellImageDataManagerTrain(train_data_path).size()
 
             try:
                 losses = []
@@ -203,7 +217,7 @@ class Trainer:
                         ds_valid_full_d = ds_valid_full.get_data()
                         for idx, dp_valid in tqdm(enumerate(ds_valid_full_d), desc='validate using the iou metric',
                                                   total=len(
-                                                      CellImageDataManagerValid.LIST + CellImageDataManagerValid.LIST_EXT1)):
+                                                      CellImageDataManagerValid(valid_data_path).get_idx_list())):
                             image = dp_valid[0]
                             instances = network.inference(sess, image)
                             pool_args.append((thr_list, instances, dp_valid[2]))
@@ -255,7 +269,7 @@ class Trainer:
             kaggle_submit = KaggleSubmission(name)
             logger.info('Start to test on validation set.... (may take a while)')
             valid_metrics = []
-            for idx, dp_valid in tqdm(enumerate(ds_valid_full.get_data()), total=len(CellImageDataManagerValid.LIST)):
+            for idx, dp_valid in tqdm(enumerate(ds_valid_full.get_data()), total=len(CellImageDataManagerValid(valid_data_path).get_idx_list())):
                 image = dp_valid[0]
                 img_h, img_w = image.shape[:2]
                 labels = list(batch_to_multi_masks(dp_valid[2], transpose=False))

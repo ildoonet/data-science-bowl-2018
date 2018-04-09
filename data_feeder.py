@@ -31,7 +31,7 @@ master_dir_test = '/data/public/rw/datasets/dsb2018/test'
 # SPLIT_IDX = 1100
 
 # extra1 ref : https://www.kaggle.com/voglinio/external-h-e-data-with-mask-annotations/notebook
-extra1_dir = '/data/public/rw/datasets/dsb2018/extra_data'
+# extra1_dir = '/data/public/rw/datasets/dsb2018/extra_data'
 
 
 class CellImageData:
@@ -132,10 +132,10 @@ class CellImageData:
 
 
 class CellImageDataManager(RNGDataFlow):
-    def __init__(self, name, path, idx_list, is_shuffle=False):
+    def __init__(self, name, path, is_shuffle=False):
         self.name = name
         self.path = path
-        self.idx_list = idx_list
+        self.idx_list = list(next(os.walk(path))[1])
         self.is_shuffle = is_shuffle
         logger.info('%s data size = %d' % (self.name, self.size()))
 
@@ -149,48 +149,39 @@ class CellImageDataManager(RNGDataFlow):
         for idx in self.idx_list:
             if 'TCGA' in idx:
                 # extra1 dataset
-                yield [CellImageData(idx, extra1_dir, ext='tif')]
+                yield [CellImageData(idx, self.path, ext='tif')]
             else:
                 # default dataset
                 yield [CellImageData(idx, self.path)]
 
+    def get_idx_list(self):
+        return self.idx_list
+
 
 class CellImageDataManagerTrain(CellImageDataManager):
-    LIST = list(next(os.walk(master_dir_train))[1])
-    LIST_EXT1 = list(next(os.walk(extra1_dir))[1])
-
-    def __init__(self):
+    def __init__(self, path):
         super().__init__(
             'train',
-            master_dir_train,
-            CellImageDataManagerTrain.LIST + CellImageDataManagerTrain.LIST_EXT1,
+            path,
             True
         )
         # TODO : train/valid set k folds implementation
 
 
 class CellImageDataManagerValid(CellImageDataManager):
-    LIST = list(next(os.walk(master_dir_valid))[1])
-    LIST_EXT1 = []
-    # LIST_EXT1 = list(next(os.walk(extra1_dir))[1])[20:]
-
-    def __init__(self):
+    def __init__(self, path):
         super().__init__(
             'valid',
-            master_dir_valid,
-            CellImageDataManagerValid.LIST + CellImageDataManagerValid.LIST_EXT1,
+            path,
             False
         )
 
 
 class CellImageDataManagerTest(CellImageDataManager):
-    LIST = list(next(os.walk(master_dir_test))[1])
-
-    def __init__(self):
+    def __init__(self, path):
         super().__init__(
             'test',
-            master_dir_test,
-            CellImageDataManagerTest.LIST,
+            path,
             False
         )
 
