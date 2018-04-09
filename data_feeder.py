@@ -14,6 +14,7 @@ from tensorpack.dataflow.base import RNGDataFlow
 from tensorpack.dataflow import PrefetchData
 
 from data_augmentation import data_to_segment_input, data_to_normalize01
+from hyperparams import HyperParams
 
 logger = logging.getLogger('train')
 logger.setLevel(logging.DEBUG)
@@ -27,6 +28,13 @@ logger.addHandler(ch)
 master_dir_train = '/data/public/rw/datasets/dsb2018/train'
 master_dir_test = '/data/public/rw/datasets/dsb2018/test'
 SPLIT_IDX = 576
+ORIG_DATA_SIZE = len(list(next(os.walk(master_dir_train))[1]))
+IDX_LIST = list(range(ORIG_DATA_SIZE))
+VALID_IDX_LIST = IDX_LIST[-94*(HyperParams.get().data_fold+1):][:94]
+TRAIN_IDX_LIST = sorted(list(set(IDX_LIST) - set(VALID_IDX_LIST)))
+
+assert len(VALID_IDX_LIST) == 94
+assert len(TRAIN_IDX_LIST) == 576
 
 # extra1 ref : https://www.kaggle.com/voglinio/external-h-e-data-with-mask-annotations/notebook
 extra1_dir = '/data/public/rw/datasets/dsb2018/extra_data'
@@ -50,6 +58,7 @@ class CellImageData:
         self.img_h, self.img_w = self.img.shape[:2]
         assert self.img_h > 0 and self.img_w > 0
         self.masks = []
+        self.mask_h, self.mask_w = 0, 0
         mask_dir = os.path.join(target_dir, 'masks')
 
         if not os.path.exists(mask_dir):
@@ -70,10 +79,16 @@ class CellImageData:
             mask = mask >> 7    # faster than mask // 129
             self.masks.append(mask)
 
+    def remove_redundant_masks(self):
+        if len(self.masks) > 0:
+            self.mask_h, self.mask_w = self.masks[0].shape[:2]
+            self.masks = [mask for mask in self.masks if np.max(mask) > 0]
+
     def single_mask(self, ch1=True):
         """
         :return: (h, w, 1) numpy
         """
+        self.remove_redundant_masks()
         multi_masks = self.multi_masks()
         multi_masks = np.sum(multi_masks, axis=2)
         if ch1:
@@ -84,16 +99,27 @@ class CellImageData:
         """
         :return: (h, w, m) numpy
         """
-        r = np.stack(self.masks, axis=0)
+        self.remove_redundant_masks()
+        if len(self.masks) == 0:
+            if self.mask_h > 0 and self.mask_w > 0:
+                img_h, img_w = self.mask_h, self.mask_w
+            else:
+                img_h, img_w = 228, 228  # TODO : temporal code
+            r = np.zeros((1, img_h, img_w))
+        else:
+            r = np.stack(self.masks, axis=0)
         if transpose:
             r = r.transpose([1, 2, 0])
         return r
 
     def multi_masks_batch(self):
+        self.remove_redundant_masks()
         if len(self.masks) > 0:
             img_h, img_w = self.masks[0].shape[:2]
+        elif self.mask_h > 0 and self.mask_w > 0:
+            img_h, img_w = self.mask_h, self.mask_w
         else:
-            img_h, img_w = self.img.shape[:2]
+            img_h, img_w = 228, 228  # TODO : temporal code
         m = np.zeros(shape=(img_h, img_w, 1), dtype=np.uint8)
         for idx, mask in enumerate(self.masks):
             m = m + mask[..., np.newaxis] * (idx + 1)
@@ -111,6 +137,13 @@ class CellImageData:
 
     def unet_weights(self):
         # ref : https://www.kaggle.com/piotrczapla/tensorflow-u-net-starter-lb-0-34/notebook
+        if len(self.masks) == 0:
+            if self.mask_h > 0 and self.mask_w > 0:
+                img_h, img_w = self.mask_h, self.mask_w
+            else:
+                img_h, img_w = 228, 228  # TODO : temporal code
+            return np.ones((img_h, img_w, 1), dtype=np.float32)
+
         w0 = 10
         sigma = 5
 
@@ -154,23 +187,24 @@ class CellImageDataManager(RNGDataFlow):
 
 
 class CellImageDataManagerTrain(CellImageDataManager):
-    LIST = list(next(os.walk(master_dir_train))[1])[:SPLIT_IDX]
-    LIST_EXT1 = list(next(os.walk(extra1_dir))[1])
+    LIST_ORIG = [x for i, x in enumerate(next(os.walk(master_dir_train))[1]) if i in TRAIN_IDX_LIST]
+    LIST_EXT1 = list(next(os.walk(extra1_dir))[1])[:21]
+    LIST = LIST_ORIG + LIST_EXT1
 
     def __init__(self):
         super().__init__(
             'train',
             master_dir_train,
-            CellImageDataManagerTrain.LIST + CellImageDataManagerTrain.LIST_EXT1,
+            CellImageDataManagerTrain.LIST,
             True
         )
         # TODO : train/valid set k folds implementation
 
 
 class CellImageDataManagerValid(CellImageDataManager):
-    LIST = list(next(os.walk(master_dir_train))[1])[SPLIT_IDX:]
-    LIST_EXT1 = []
-    # LIST_EXT1 = list(next(os.walk(extra1_dir))[1])[20:]
+    LIST_ORIG = [x for i, x in enumerate(next(os.walk(master_dir_train))[1]) if i in VALID_IDX_LIST]
+    LIST_EXT1 = list(next(os.walk(extra1_dir))[1])[-9:]
+    LIST = LIST_EXT1 + LIST_ORIG
 
     def __init__(self):
         super().__init__(
@@ -254,10 +288,12 @@ def batch_to_multi_masks(multi_masks_batch, transpose=True):
 
 if __name__ == '__main__':
     split_idx = 576
-    print('total size=', len(list(next(os.walk(master_dir_train))[1])))
+    print('total size=', len(list(next(os.walk(master_dir_train))[1])))     # 670
     train_set = list(next(os.walk(master_dir_train))[1])[-576:]
     valid_set = list(next(os.walk(master_dir_train))[1])[:-576]
     test_set = list(next(os.walk(master_dir_test))[1])
+
+    sys.exit(0)
 
     ds = get_default_dataflow()
     print(dir(ds))

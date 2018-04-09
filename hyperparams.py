@@ -1,3 +1,6 @@
+import os
+
+
 class HyperParams:
     # Here will be the instance stored.
     __instance = None
@@ -30,6 +33,10 @@ class HyperParams:
         self.pre_affine_translate = 0.1     # 0.4?
         self.pre_size_norm_min = 10         # in pixel
         self.pre_size_norm_max = 150         # in pixel
+
+        # 0~6, 7-folds
+        self.data_fold = int(os.environ.get('fold', 0))
+        print('---------- data folds = %d ---------' % self.data_fold)
 
         self.net_dropout_keep = 0.9         # 0.8?
         self.net_bn_decay = 0.9

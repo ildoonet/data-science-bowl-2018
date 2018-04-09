@@ -6,7 +6,7 @@ import hyperopt_optimizer
 from submission import KaggleSubmission
 
 if __name__ == '__main__':
-    exp_key = 'preprocess1'
+    exp_key = 'unnetarch'
     print('---------------- experiments : %s ----------------' % exp_key)
     space = hp.choice('parameters', [
         {
@@ -18,26 +18,26 @@ if __name__ == '__main__':
             # 'net_bn_epsilon': hp.choice('net_bn_epsilon', [0.001]),
             # 'net_dropout_keep': hp.choice('net_dropout_keep', [0.9, 0.8, 0.7, 0.5]),
             # 'net_init_stddev': hp.choice('net_init_stddev', [0.02, 0.01, 0.005]),
-            # 'unet_base_feature': hp.choice('unet_base_feature', [24, 32]),
-            # 'unet_step_size': hp.choice('unet_step_size', [3, 4, 5]),       # depth5 = out of memory
+            # 'unet_base_feature': hp.choice('unet_base_feature', [32, 48]),
+            # 'unet_step_size': hp.choice('unet_step_size', [4, 5]),       # depth5 = out of memory
 
             # 'pre_erosion_iter': hp.choice('pre_erosion_iter', [1, 2, 3]),
             # 'post_dilation_iter': hp.choice('post_dilation_iter', [1, 2, 3, 4]),
 
-            'pre_scale_f1': hp.uniform('pre_scale_f1', 0.2, 0.5),
-            'pre_scale_f2': hp.uniform('pre_scale_f2', 0.2, 0.6),
-            'pre_affine_rotate': hp.uniform('pre_affine_rotate', 10, 90),
-            'pre_affine_shear': hp.uniform('pre_affine_shear', 2, 25),
-            'pre_affine_translate': hp.uniform('pre_affine_translate', 0.1, 0.4),
+            # 'pre_scale_f1': hp.uniform('pre_scale_f1', 0.2, 0.5),
+            # 'pre_scale_f2': hp.uniform('pre_scale_f2', 0.2, 0.6),
+            # 'pre_affine_rotate': hp.uniform('pre_affine_rotate', 10, 90),
+            # 'pre_affine_shear': hp.uniform('pre_affine_shear', 2, 25),
+            # 'pre_affine_translate': hp.uniform('pre_affine_translate', 0.1, 0.4),
 
-            'post_fill_holes': hp.choice('post_fill_holes', [False, True]),
+            # 'post_fill_holes': hp.choice('post_fill_holes', [False, True]),
 
-            'model': hp.choice('model', ['unet']),
+            # 'model': hp.choice('model', ['unet']),
         }
     ])
 
     trials = MongoTrials('mongo://hyper-mongo.devel.kakao.com:10247/curtis_db/jobs', exp_key=exp_key)
-    best = fmin(hyperopt_optimizer.objective, space, trials=trials, algo=tpe.suggest, max_evals=32, verbose=1)
+    best = fmin(hyperopt_optimizer.objective, space, trials=trials, algo=tpe.suggest, max_evals=4, verbose=1)
     print('--------------')
     print(trials.best_trial['result'])
     # print(best)

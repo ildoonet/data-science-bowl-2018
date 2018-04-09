@@ -223,8 +223,11 @@ class NetworkBasic(Network):
         merged_output = merged_output.reshape((image.shape[0], image.shape[1]))
 
         # sementation to instance-aware segmentations.
-        instances = Network.parse_merged_output(
+        instances, scores = Network.parse_merged_output(
             merged_output, cutoff=0.5, use_separator=False
         )
 
-        return instances
+        return {
+            'instances': instances,
+            'scores': scores
+        }

@@ -8,9 +8,11 @@ from scipy import ndimage
 from skimage.morphology import label
 
 from colors import get_colors
+from data_augmentation import get_size_of_mask
 from hyperparams import HyperParams
 from data_feeder import batch_to_multi_masks
 from separator import separation
+from submission import get_iou
 
 
 class Network:
@@ -88,7 +90,7 @@ class Network:
         return cascades, windows
 
     @staticmethod
-    def parse_merged_output(output, cutoff=0.5, use_separator=False, cutoff_instance=0.0):
+    def parse_merged_output(output, cutoff=0.5, use_separator=False, cutoff_instance_max=0.8, cutoff_instance_avg=0.2):
         """
         Split 1-channel merged output for instance segmentation
         :param cutoff:
@@ -106,23 +108,54 @@ class Network:
                 reconstructed_mask = reconstructed_mask + img_
             output = reconstructed_mask
         lab_img = label(output > cutoff, connectivity=1)
-        if HyperParams.get().post_dilation_iter > 0:
-            for i in range(1, lab_img.max() + 1):
-                lab_img = np.maximum(lab_img, ndimage.morphology.binary_dilation(lab_img == i, iterations=HyperParams.get().post_dilation_iter) * i)
         instances = []
         for i in range(1, lab_img.max() + 1):
-            instances.append(lab_img == i)
+            instances.append((lab_img == i).astype(np.bool))
 
-        if cutoff_instance > 0.0:
-            filtered_instances = []
-            for instance in instances:
-                if np.max(instance * output) < cutoff_instance:     # TODO : max or avg?
-                    continue
-                filtered_instances.append(instance)
-            instances = filtered_instances
+        filtered_instances = []
+        scores = []
+        for instance in instances:
+            # TODO : max or avg?
+            instance_score_max = np.max(instance * output)    # score max
+            if instance_score_max < cutoff_instance_max:
+                continue
+            instance_score_avg = np.sum(instance * output) / np.sum(instance)   # score avg
+            if instance_score_avg < cutoff_instance_avg:
+                continue
+            filtered_instances.append(instance)
+            scores.append(instance_score_avg)
 
+        # dilation
+        instances = []
+        if HyperParams.get().post_dilation_iter > 0:
+            for instance in filtered_instances:
+                instance = ndimage.morphology.binary_dilation(instance, iterations=HyperParams.get().post_dilation_iter)
+                instances.append(instance)
+
+        # sorted by size
+        sorted_idx = [i[0] for i in sorted(enumerate(instances), key=lambda x: get_size_of_mask(x[1]))]
+        instances = [instances[x] for x in sorted_idx]
+        scores = [scores[x] for x in sorted_idx]
+
+        # make sure there are no overlaps
+        instances = Network.remove_overlaps(instances)
+
+        # fill holes
         if HyperParams.get().post_fill_holes:
             instances = [ndimage.morphology.binary_fill_holes(i) for i in instances]
+
+        return instances, scores
+
+    @staticmethod
+    def remove_overlaps(instances):
+        if len(instances) == 0:
+            return []
+        lab_img = np.zeros(instances[0].shape, dtype=np.int32)
+        for i, instance in enumerate(instances):
+            lab_img = np.maximum(lab_img, instance * (i + 1))
+        instances = []
+        for i in range(1, lab_img.max() + 1):
+            instances.append((lab_img == i).astype(np.bool))
         return instances
 
     @staticmethod
@@ -190,6 +223,29 @@ class Network:
             new_instances.append(lab_img == i)
 
         return new_instances
+
+    @staticmethod
+    def nms(instances, scores, from_set=None, thresh=0.3):
+        scores = np.array(scores)
+        order = scores.argsort()[::-1]
+
+        keep = []
+        while order.size > 0:
+            idx1 = order[0]
+            keep.append(idx1)
+
+            ovr = []
+            for idx2 in order[1:]:
+                if from_set is not None and from_set[idx1] == from_set[idx2]:
+                    ovr.append(0.0)
+                    continue
+                ovr.append(get_iou(instances[idx1], instances[idx2]))
+            ovr = np.array(ovr, dtype=np.float32)
+
+            inds = np.where(ovr <= thresh)[0]
+            order = order[inds + 1]
+
+        return [instances[x] for x in keep], [scores[x] for x in keep]
 
     def __init__(self):
         self.is_training = tf.placeholder(tf.bool, name='is_training')

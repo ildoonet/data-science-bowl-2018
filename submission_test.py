@@ -57,7 +57,7 @@ class TestSubmission(unittest.TestCase):
 
     def test_iou(self):
         iou = get_iou(self.a, self.b)
-        self.assertAlmostEqual(iou, 0.5, 0.001)
+        self.assertAlmostEqual(iou, 0.5, delta=0.001)
 
     def test_iou_speed(self):
         t = time.time()
@@ -84,14 +84,14 @@ class TestSubmission(unittest.TestCase):
             ]
         ])
         tp, fp, fn = get_metric(self.instances, labels, thr_list=[0.5])
-        self.assertEqual(tp, 1)
-        self.assertEqual(fp, 1)
-        self.assertEqual(fn, 0)
+        self.assertEqual(np.mean(tp), 1)
+        self.assertEqual(np.mean(fp), 1)
+        self.assertEqual(np.mean(fn), 0)
 
         tp, fp, fn = get_metric(self.instances, labels, thr_list=[0.95])
-        self.assertEqual(tp, 0)
-        self.assertEqual(fp, 2)
-        self.assertEqual(fn, 1)
+        self.assertEqual(np.mean(tp), 0)
+        self.assertEqual(np.mean(fp), 2)
+        self.assertEqual(np.mean(fn), 1)
 
         labels = np.array([
             [
@@ -103,30 +103,9 @@ class TestSubmission(unittest.TestCase):
             ]
         ])
         tp, fp, fn = get_metric(self.instances, labels, thr_list=[0.5])
-        self.assertEqual(tp, 1)
-        self.assertEqual(fp, 1)
-        self.assertEqual(fn, 0)
-
-        labels = np.array([
-            [
-                [0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0],
-                [1, 1, 0, 0, 0],
-                [1, 1, 0, 0, 0],
-                [0, 0, 0, 0, 0],
-            ],
-            [
-                [0, 0, 0, 1, 1],
-                [0, 0, 0, 1, 1],
-                [1, 1, 0, 0, 0],
-                [1, 1, 0, 0, 0],
-                [0, 0, 0, 0, 0],
-            ]
-        ])
-        tp, fp, fn = get_metric(self.instances, labels, thr_list=[0.5])
-        self.assertEqual(tp, 1)
-        self.assertEqual(fp, 1)
-        self.assertEqual(fn, 1)
+        self.assertEqual(np.mean(tp), 1)
+        self.assertEqual(np.mean(fp), 1)
+        self.assertEqual(np.mean(fn), 0)
 
         labels = np.array([
             [
@@ -137,6 +116,27 @@ class TestSubmission(unittest.TestCase):
                 [0, 0, 0, 0, 0],
             ],
             [
+                [0, 0, 0, 1, 1],
+                [0, 0, 0, 1, 1],
+                [1, 1, 0, 0, 0],
+                [1, 1, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+            ]
+        ])
+        tp, fp, fn = get_metric(self.instances, labels, thr_list=[0.5])
+        self.assertEqual(np.mean(tp), 1)
+        self.assertEqual(np.mean(fp), 1)
+        self.assertEqual(np.mean(fn), 1)
+
+        labels = np.array([
+            [
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+                [1, 1, 0, 0, 0],
+                [1, 1, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+            ],
+            [
                 [0, 0, 0, 0, 0],
                 [0, 0, 0, 0, 0],
                 [0, 0, 0, 0, 0],
@@ -145,6 +145,6 @@ class TestSubmission(unittest.TestCase):
             ]
         ])
         tp, fp, fn = get_metric(self.instances, labels, thr_list=[0.5])
-        self.assertEqual(tp, 2)
-        self.assertEqual(fp, 0)
-        self.assertEqual(fn, 0)
+        self.assertEqual(np.mean(tp), 2)
+        self.assertEqual(np.mean(fp), 0)
+        self.assertEqual(np.mean(fn), 0)

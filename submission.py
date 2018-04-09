@@ -7,6 +7,7 @@ import json
 import numpy as np
 import pandas as pd
 import time
+import pickle
 
 import sys
 
@@ -70,11 +71,16 @@ def get_iou1(a, b):
 
 
 def get_iou2(a, b):
-    rmin1, rmax1, cmin1, cmax1 = get_rect_of_mask(a)
-    rmin2, rmax2, cmin2, cmax2 = get_rect_of_mask(b)
-    if not ((rmin1 <= rmin2 <= rmax1 or rmin1 <= rmax2 <= rmax1) or (cmin1 <= cmin2 <= cmax1 or cmin1 <= cmax2 <= cmax1) or
-                (rmin2 <= rmin1 <= rmax2 or rmin2 <= rmax1 <= rmax2) or (cmin2 <= cmin1 <= cmax2 or cmin2 <= cmax1 <= cmax2)):
-        return 0.0
+    try:
+        rmin1, rmax1, cmin1, cmax1 = get_rect_of_mask(a)
+        rmin2, rmax2, cmin2, cmax2 = get_rect_of_mask(b)
+        if not ((rmin1 <= rmin2 <= rmax1 or rmin1 <= rmax2 <= rmax1) or (
+                    cmin1 <= cmin2 <= cmax1 or cmin1 <= cmax2 <= cmax1) or
+                    (rmin2 <= rmin1 <= rmax2 or rmin2 <= rmax1 <= rmax2) or (
+                    cmin2 <= cmin1 <= cmax2 or cmin2 <= cmax1 <= cmax2)):
+            return 0.0
+    except:
+        pass
 
     if len(a.shape) == 2:
         a = a[..., np.newaxis]
@@ -162,6 +168,8 @@ class KaggleSubmission:
         self.train_scores = OrderedDict()
         self.valid_scores = OrderedDict()
         self.test_scores = OrderedDict()
+        self.valid_instances = {}   # key : id -> (instances, scores)
+        self.test_instances = {}
 
         logger.info('creating: %s' % os.path.join(KaggleSubmission.BASEPATH, self.name))
         os.makedirs(os.path.join(KaggleSubmission.BASEPATH, self.name), exist_ok=True)
@@ -172,10 +180,15 @@ class KaggleSubmission:
 
     def save_train_image(self, idx, image, loss=0.0, score=0.0, score_desc=[]):
         cv2.imwrite(os.path.join(KaggleSubmission.BASEPATH, self.name, 'train', idx + '.jpg'), image)
+
+        if isinstance(idx, bytes):
+            idx = idx.decode("utf-8")
         self.train_scores[idx] = (loss, score, score_desc)
 
     def save_valid_image(self, idx, image, loss=0.0, score=0.0, score_desc=[]):
         cv2.imwrite(os.path.join(KaggleSubmission.BASEPATH, self.name, 'valid', idx + '.jpg'), image)
+        if isinstance(idx, bytes):
+            idx = idx.decode("utf-8")
         self.valid_scores[idx] = (loss, score, score_desc)
 
     def save_image(self, idx, image, loss=0.0):
@@ -218,6 +231,10 @@ class KaggleSubmission:
         filepath = os.path.join(KaggleSubmission.BASEPATH, self.name, 'test.html')
         return filepath
 
+    def get_pklpath(self):
+        filepath = os.path.join(KaggleSubmission.BASEPATH, self.name, 'submission.pkl')
+        return filepath
+
     def save(self):
         sub = pd.DataFrame()
         sub['ImageId'] = self.test_ids
@@ -244,7 +261,7 @@ class KaggleSubmission:
                      "  $rows$" \
                      "</table></body></html>"
         row_html = "<tr>" \
-                   "    <td>{idx}<br/><br/>{iou}<br/>{iou2}</td><td><img src=\"./{idx}.jpg\"</td>" \
+                   "    <td><b>{idx}</b><br/>{iou}<br/>{iou2}</td><td><img src=\"./{idx}.jpg\"</td>" \
                    "</tr>"
         # save training results
         rows = []
@@ -293,6 +310,14 @@ class KaggleSubmission:
         filepath = self.get_test_htmlpath()
         f = open(filepath, 'w')
         f.write(html)
+        f.close()
+
+        # save pkl
+        f = open(self.get_pklpath(), 'wb')
+        pickle.dump({
+            'valid_instances': self.valid_instances,
+            'test_instances': self.test_instances
+        }, f, pickle.HIGHEST_PROTOCOL)
         f.close()
 
     def submit_result(self, submit_msg='KakaoAutoML'):

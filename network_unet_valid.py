@@ -5,10 +5,11 @@ from tensorflow.contrib import slim
 from data_augmentation import data_to_segment_input, \
     data_to_image, random_flip_lr, random_flip_ud, random_scaling, random_affine, \
     random_color, data_to_normalize1, data_to_elastic_transform_wrapper, resize_shortedge_if_small, random_crop, \
-    center_crop, random_color2, erosion_mask, resize_shortedge, mask_size_normalize, crop_mirror, pad_if_small
+    center_crop, random_color2, erosion_mask, resize_shortedge, mask_size_normalize, crop_mirror, pad_if_small, \
+    mirror_pad, center_crop_if_tcga
 from data_feeder import CellImageDataManagerTrain, CellImageDataManagerValid, CellImageDataManagerTest
 from tensorpack.dataflow.common import BatchData, MapData, MapDataComponent
-from tensorpack.dataflow.parallel import PrefetchData
+from tensorpack.dataflow.parallel import PrefetchData, MultiThreadPrefetchData
 
 from hyperparams import HyperParams
 from network import Network
@@ -163,7 +164,7 @@ class NetworkUnetValid(NetworkBasic):
         if self.unet_weight:
             ds_train = MapDataComponent(ds_train, erosion_mask)
         ds_train = MapData(ds_train, lambda x: data_to_segment_input(x, not self.is_color, self.unet_weight))
-        ds_train = PrefetchData(ds_train, 256, 24)
+        ds_train = PrefetchData(ds_train, 64, 16)
         ds_train = BatchData(ds_train, self.batchsize)
         ds_train = MapDataComponent(ds_train, data_to_normalize1)
 
@@ -172,12 +173,13 @@ class NetworkUnetValid(NetworkBasic):
         if self.unet_weight:
             ds_valid = MapDataComponent(ds_valid, erosion_mask)
         ds_valid = MapData(ds_valid, lambda x: data_to_segment_input(x, not self.is_color, self.unet_weight))
-        ds_valid = PrefetchData(ds_valid, 20, 12)
+        ds_valid = PrefetchData(ds_valid, 20, 4)
         ds_valid = BatchData(ds_valid, self.batchsize, remainder=True)
         ds_valid = MapDataComponent(ds_valid, data_to_normalize1)
 
         ds_valid2 = CellImageDataManagerValid()
         ds_valid2 = MapDataComponent(ds_valid2, lambda x: resize_shortedge_if_small(x, self.img_size))
+        ds_valid2 = MapDataComponent(ds_valid2, lambda x: center_crop_if_tcga(x, self.img_size, self.img_size))
         # ds_valid2 = MapDataComponent(ds_valid2, lambda x: resize_shortedge(x, self.img_size))
         ds_valid2 = MapData(ds_valid2, lambda x: data_to_segment_input(x, not self.is_color))
         ds_valid2 = MapDataComponent(ds_valid2, data_to_normalize1)
@@ -199,10 +201,12 @@ class NetworkUnetValid(NetworkBasic):
             return (seq[pos:pos + size] for pos in range(0, len(seq), size))
 
         outputs = []
+        padding = (self.pad_size if self.pad_preprocess else 0)
+        mirror_padded = mirror_pad(image, padding)
         for ws in chunker(windows, 64):
             b = []
             for w in ws:
-                b.append(crop_mirror(image, w.x, w.y, w.w, w.h, padding=(self.pad_size if self.pad_preprocess else 0)))
+                b.append(mirror_padded[w.y:w.y+w.h+padding*2, w.x:w.x+w.w+padding*2])
             output = tf_sess.run(self.get_output(), feed_dict={
                 self.input_batch: b,
                 self.is_training: False
@@ -217,13 +221,20 @@ class NetworkUnetValid(NetworkBasic):
         merged_output = merged_output.reshape((image.shape[0], image.shape[1]))
 
         # sementation to instance-aware segmentations.
-        instances = Network.parse_merged_output(
-            merged_output, cutoff=0.5, use_separator=False, cutoff_instance=0.9
+        instances, scores = Network.parse_merged_output(
+            merged_output,
+            cutoff=0.5,
+            use_separator=False,
+            cutoff_instance_max=0.9,
+            cutoff_instance_avg=0.0
         )
 
         # instances = Network.watershed_merged_output(instances)
 
-        return instances
+        return {
+            'instances': instances,
+            'scores': scores
+        }
 
     def preprocess(self, x):
         x = resize_shortedge_if_small(x, self.img_size)   # self.img_size

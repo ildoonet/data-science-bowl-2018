@@ -6,7 +6,7 @@ from deeplab import model as deeplab_model
 from data_augmentation import data_to_segment_input, \
     data_to_image, random_flip_lr, random_flip_ud, random_scaling, random_affine, \
     random_color, data_to_normalize1, data_to_elastic_transform_wrapper, resize_shortedge_if_small, random_crop, \
-    center_crop, random_color2, erosion_mask, resize_shortedge, mask_size_normalize, crop_mirror
+    center_crop, random_color2, erosion_mask, resize_shortedge, mask_size_normalize, crop_mirror, center_crop_if_tcga
 from data_feeder import CellImageDataManagerTrain, CellImageDataManagerValid, CellImageDataManagerTest
 from tensorpack.dataflow.common import BatchData, MapData, MapDataComponent
 from tensorpack.dataflow.parallel import PrefetchData
@@ -92,6 +92,7 @@ class NetworkDeepLabV3p(Network):
 
         ds_valid2 = CellImageDataManagerValid()
         ds_valid2 = MapDataComponent(ds_valid2, lambda x: resize_shortedge_if_small(x, self.img_size))
+        ds_valid2 = MapDataComponent(ds_valid2, lambda x: center_crop_if_tcga(x, self.img_size, self.img_size))
         # ds_valid2 = MapDataComponent(ds_valid2, lambda x: resize_shortedge(x, self.img_size))
         ds_valid2 = MapData(ds_valid2, lambda x: data_to_segment_input(x, is_gray=False))
         ds_valid2 = MapDataComponent(ds_valid2, data_to_normalize1)
@@ -128,13 +129,20 @@ class NetworkDeepLabV3p(Network):
         merged_output = merged_output.reshape((image.shape[0], image.shape[1]))
 
         # sementation to instance-aware segmentations.
-        instances = Network.parse_merged_output(
-            merged_output, cutoff=0.5, use_separator=False, cutoff_instance=0.9
+        instances, scores = Network.parse_merged_output(
+            merged_output,
+            cutoff=0.5,
+            use_separator=False,
+            cutoff_instance_max=0.9,
+            cutoff_instance_avg=0.0
         )
 
         # instances = Network.watershed_merged_output(instances)
 
-        return instances
+        return {
+            'instances': instances,
+            'scores': scores
+        }
 
     def get_logit(self):
         return self.logit
