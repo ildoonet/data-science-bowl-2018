@@ -55,7 +55,6 @@ class Trainer:
             self.network = NetworkFusionNet(batchsize)
         else:
             raise Exception('model name(%s) is not valid' % model)
-        self.network.build()
         logger.info('constructing network model: %s' % model)
 
     def init_session(self):
@@ -71,6 +70,8 @@ class Trainer:
             logdir='/data/public/rw/kaggle-data-science-bowl/logs/',
             **kwargs):
         self.set_network(model, batchsize)
+        ds_train, ds_valid, ds_valid_full, ds_test = self.network.get_input_flow()
+        self.network.build()
         print(HyperParams.get().__dict__)
 
         net_output = self.network.get_output()
@@ -98,6 +99,10 @@ class Trainer:
 
         saver = tf.train.Saver()
         m_epoch = 0
+
+        # initialize session
+        self.init_session()
+
         # tensorboard
         tf.summary.scalar('loss', net_loss, collections=['train', 'valid'])
         s_train = tf.summary.merge_all('train')
@@ -105,7 +110,6 @@ class Trainer:
         train_writer = tf.summary.FileWriter(logdir + name + '/train', self.sess.graph)
         valid_writer = tf.summary.FileWriter(logdir + name + '/valid', self.sess.graph)
 
-        self.init_session()
         logger.info('training started+')
         if not checkpoint:
             self.sess.run(tf.global_variables_initializer())
@@ -141,7 +145,6 @@ class Trainer:
 
         if epoch > 0:
             try:
-                ds_train, ds_valid, ds_valid_full, ds_test = self.network.get_input_flow()
                 losses = []
                 for e in range(start_e, epoch):
                     loss_val_avg = []
@@ -187,7 +190,7 @@ class Trainer:
                             for dp_valid in ds_valid_d:
                                 loss_val, summary_valid = self.sess.run(
                                     [net_loss, s_valid],
-                                    feed_dict=self.network.get_feeddict(dp_valid, True)
+                                    feed_dict=self.network.get_feeddict(dp_valid, False)
                                 )
 
                                 avg.append(loss_val)
@@ -305,6 +308,7 @@ class Trainer:
     def validate(self, network=None, checkpoint=None):
         if network is not None:
             self.set_network(network)
+            self.network.build()
 
         self.init_session()
 
@@ -326,6 +330,7 @@ class Trainer:
     def single_id(self, model, checkpoint, single_id, set_type='train', show=True, verbose=True):
         if model:
             self.set_network(model)
+            self.network.build()
 
         self.init_session()
         if checkpoint:

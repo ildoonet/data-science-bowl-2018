@@ -164,16 +164,17 @@ class NetworkUnetValid(NetworkBasic):
         if self.unet_weight:
             ds_train = MapDataComponent(ds_train, erosion_mask)
         ds_train = MapData(ds_train, lambda x: data_to_segment_input(x, not self.is_color, self.unet_weight))
-        ds_train = PrefetchData(ds_train, 64, 16)
+        ds_train = PrefetchData(ds_train, 256, 24)
         ds_train = BatchData(ds_train, self.batchsize)
         ds_train = MapDataComponent(ds_train, data_to_normalize1)
 
         ds_valid = CellImageDataManagerValid()
+        ds_valid = MapDataComponent(ds_valid, lambda x: resize_shortedge_if_small(x, self.img_size))
         ds_valid = MapDataComponent(ds_valid, lambda x: random_crop(x, self.img_size, self.img_size, padding=self.pad_size if self.pad_preprocess else 0))
         if self.unet_weight:
             ds_valid = MapDataComponent(ds_valid, erosion_mask)
         ds_valid = MapData(ds_valid, lambda x: data_to_segment_input(x, not self.is_color, self.unet_weight))
-        ds_valid = PrefetchData(ds_valid, 20, 4)
+        ds_valid = PrefetchData(ds_valid, 32, 8)
         ds_valid = BatchData(ds_valid, self.batchsize, remainder=True)
         ds_valid = MapDataComponent(ds_valid, data_to_normalize1)
 
