@@ -114,11 +114,14 @@ def get_metric(instances, label_trues, thr_list):
     cnt_tps = np.zeros((len(thr_list)), dtype=np.int32)
     cnt_fps = np.zeros((len(thr_list)), dtype=np.int32)
     cnt_ass = np.zeros((len(thr_list), len(label_trues)), dtype=np.int32)
+    max_found = set()
     for label_pred in instances:
         max_label_idx = -1
         max_label_iou = 0.0
         max_label = None
         for idx_label, label_true in enumerate(label_trues):
+            if idx_label in max_found:
+                continue
             # measure ious between label_preds & label_true
             iou = get_iou(label_true, label_pred)
 
@@ -131,6 +134,7 @@ def get_metric(instances, label_trues, thr_list):
             # false positive
             cnt_fps = cnt_fps + 1
         else:
+            max_found.add(idx_label)
             for th_idx, thr in enumerate(thr_list):
                 if max_label_iou > thr:
                     cnt_tps[th_idx] += 1
