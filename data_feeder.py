@@ -32,7 +32,7 @@ SPLIT_IDX = 576
 # train/valid set k folds implementation
 ORIG_DATA_SIZE = len(list(next(os.walk(master_dir_train))[1]))
 IDX_LIST = list(range(ORIG_DATA_SIZE))
-VALID_IDX_LIST = IDX_LIST[-94*(HyperParams.get().data_fold+1):][:94]
+VALID_IDX_LIST = IDX_LIST[-94*HyperParams.get().data_fold:][:94]
 TRAIN_IDX_LIST = sorted(list(set(IDX_LIST) - set(VALID_IDX_LIST)))
 
 assert len(VALID_IDX_LIST) == 94

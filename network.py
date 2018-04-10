@@ -5,6 +5,7 @@ import numpy as np
 import tensorflow as tf
 import slidingwindow as sw
 from scipy import ndimage
+from skimage.filters import threshold_local
 from skimage.morphology import label
 
 from colors import get_colors
@@ -107,7 +108,16 @@ class Network:
                 # copy to reconstructed mask
                 reconstructed_mask = reconstructed_mask + img_
             output = reconstructed_mask
-        lab_img = label(output > cutoff, connectivity=1)
+
+        if cutoff > 0.0:
+            cutoffed = output > cutoff
+        else:
+            # local threshold : https://www.kaggle.com/nirofa95/basic-thresholding-and-morphological-approach/code
+            block_size = 25
+            thresh = threshold_local(output, block_size, method='median', offset=-2)
+            cutoffed = output > thresh
+
+        lab_img = label(cutoffed, connectivity=1)
         instances = []
         for i in range(1, lab_img.max() + 1):
             instances.append((lab_img == i).astype(np.bool))
@@ -124,13 +134,15 @@ class Network:
                 continue
             filtered_instances.append(instance)
             scores.append(instance_score_avg)
+        instances = filtered_instances
 
         # dilation
-        instances = []
+        instances_tmp = []
         if HyperParams.get().post_dilation_iter > 0:
             for instance in filtered_instances:
                 instance = ndimage.morphology.binary_dilation(instance, iterations=HyperParams.get().post_dilation_iter)
-                instances.append(instance)
+                instances_tmp.append(instance)
+            instances = instances_tmp
 
         # sorted by size
         sorted_idx = [i[0] for i in sorted(enumerate(instances), key=lambda x: get_size_of_mask(x[1]))]
@@ -138,7 +150,7 @@ class Network:
         scores = [scores[x] for x in sorted_idx]
 
         # make sure there are no overlaps
-        instances = Network.remove_overlaps(instances)
+        instances, scores = Network.remove_overlaps(instances, scores)
 
         # fill holes
         if HyperParams.get().post_fill_holes:
@@ -147,16 +159,21 @@ class Network:
         return instances, scores
 
     @staticmethod
-    def remove_overlaps(instances):
+    def remove_overlaps(instances, scores):
         if len(instances) == 0:
             return []
         lab_img = np.zeros(instances[0].shape, dtype=np.int32)
         for i, instance in enumerate(instances):
             lab_img = np.maximum(lab_img, instance * (i + 1))
         instances = []
+        new_scores = []
         for i in range(1, lab_img.max() + 1):
-            instances.append((lab_img == i).astype(np.bool))
-        return instances
+            instance = (lab_img == i).astype(np.bool)
+            if np.max(instance) == 0:
+                continue
+            instances.append(instance)
+            new_scores.append(scores[i - 1])
+        return instances, new_scores
 
     @staticmethod
     def watershed_merged_output(instances):

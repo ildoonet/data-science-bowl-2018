@@ -1,7 +1,9 @@
 import logging
 
 import os
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 from multiprocessing.pool import Pool
+from itertools import compress
 
 import sys
 from operator import itemgetter
@@ -17,7 +19,7 @@ from tqdm import tqdm
 from checkmate.checkmate import BestCheckpointSaver, get_best_checkpoint
 from data_augmentation import get_max_size_of_masks, mask_size_normalize, center_crop, get_size_of_mask
 from data_feeder import batch_to_multi_masks, CellImageData, master_dir_test, master_dir_train, \
-    CellImageDataManagerValid, CellImageDataManagerTrain, CellImageDataManagerTest, extra1_dir
+    CellImageDataManagerValid, CellImageDataManagerTrain, CellImageDataManagerTest, extra1_dir, extra2_dir
 from hyperparams import HyperParams
 from network import Network
 from network_basic import NetworkBasic
@@ -25,10 +27,11 @@ from network_deeplabv3p import NetworkDeepLabV3p
 from network_unet import NetworkUnet
 from network_fusionnet import NetworkFusionNet
 from network_unet_valid import NetworkUnetValid
+from stopwatch import StopWatch
 from submission import KaggleSubmission, get_multiple_metric, thr_list, get_iou
 
 logger = logging.getLogger('train')
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.INFO if os.environ.get('DEBUG', 0) == 0 else logging.DEBUG)
 ch = logging.StreamHandler(sys.stdout)
 ch.setLevel(logging.DEBUG)
 formatter = logging.Formatter('[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s')
@@ -153,16 +156,9 @@ class Trainer:
                     ds_train.reset_state()
                     ds_train_d = ds_train.get_data()
                     for dp_train in ds_train_d:
-
-                        _, loss_val, summary_train = self.sess.run(
-                            [train_op, net_loss, s_train],
-                            feed_dict=self.network.get_feeddict(dp_train, True)
-                        )
+                        _, loss_val, summary_train = self.sess.run([train_op, net_loss, s_train], feed_dict=self.network.get_feeddict(dp_train, True))
                         loss_val_avg.append(loss_val)
                         train_cnt += 1
-                        # for debug
-                        # cv2.imshow('train', Network.visualize(dp_train[0][0], dp_train[2][0], None, dp_train[3][0], 'norm1'))
-                        # cv2.waitKey(0)
                     ds_train_d.close()
 
                     step, lr = self.sess.run([global_step, learning_rate_v])
@@ -344,6 +340,10 @@ class Trainer:
             d = CellImageData(single_id, extra1_dir, ext='tif')
             # generally, TCGAs have lots of instances -> slow matching performance
             d = center_crop(d, 224, 224, padding=0)
+        elif 'TNBC' in single_id:
+            d = CellImageData(single_id, extra2_dir, ext='png')
+            # generally, TCGAs have lots of instances -> slow matching performance
+            d = center_crop(d, 224, 224, padding=0)
         else:
             d = CellImageData(single_id, (master_dir_train if set_type == 'train' else master_dir_test))
         h, w = d.img.shape[:2]
@@ -351,6 +351,8 @@ class Trainer:
         if verbose:
             logger.info('%s image size=(%d x %d)' % (single_id, w, h))
 
+        watch = StopWatch()
+        logger.debug('preprocess+')
         d = self.network.preprocess(d)
 
         image = d.image(is_gray=False)
@@ -360,13 +362,19 @@ class Trainer:
         total_from_set = []
         cutoff_instance_max = 0.9
 
+        watch.start()
+        logger.debug('inference at default scale+')
         inference_result = self.network.inference(self.sess, image, cutoff_instance_max=cutoff_instance_max)
         instances_pre, scores_pre = inference_result['instances'], inference_result['scores']
         instances_pre = Network.resize_instances(instances_pre, target_size=(h, w))
         total_instances = total_instances + instances_pre
         total_scores = total_scores + scores_pre
         total_from_set = [1] * len(instances_pre)
+        watch.stop()
+        logger.debug('inference- elapsed=%.5f' % watch.get_elapsed())
+        watch.reset()
 
+        logger.debug('inference with flips+')
         # re-inference using flip
         for flip_orientation in range(2):
             flipped = cv2.flip(image.copy(), flip_orientation)
@@ -378,6 +386,11 @@ class Trainer:
             total_instances = total_instances + instances_flip
             total_scores = total_scores + scores_flip
             total_from_set = total_from_set + [2 + flip_orientation] * len(instances_flip)
+
+        watch.stop()
+        logger.debug('inference- elapsed=%.5f' % watch.get_elapsed())
+        watch.reset()
+        logger.debug('inference with scaling+flips+')
 
         # re-inference after rescale image
         def inference_with_scale(image, resize_target):
@@ -392,7 +405,7 @@ class Trainer:
         logger.debug('max_mask=%d' % max_mask)
         resize_target = 80.0 / max_mask
         resize_target = min(2.0, resize_target)
-        resize_target = max(0.5, resize_target)
+        resize_target = max(0.75, resize_target)
         import math
         # resize_target = 2.0 / (1.0 + math.exp(-1.5*(resize_target - 1.0)))
         # resize_target = max(0.5, resize_target)
@@ -415,42 +428,61 @@ class Trainer:
             total_scores = total_scores + scores_flip
             total_from_set = total_from_set + [5 + flip_orientation] * len(instances_flip)
 
+        watch.stop()
+        logger.debug('inference- elapsed=%.5f' % watch.get_elapsed())
+        watch.reset()
+
+        watch.start()
+        logger.debug('voting+ size=%d' % len(total_instances))
         # TODO : Voting?
-        voted_idx = []
         # voting_th = 4 if max_mask < 25 else 3
         voting_th = 4
-        for i, x in enumerate(total_instances):
-            if np.sum(np.array([get_iou(x, x2) for x2 in total_instances]) > 0.3) > voting_th:
-                voted_idx.append(i)
-        if len(voted_idx) > 0:
-            ig = itemgetter(*voted_idx)
-            total_instances = ig(total_instances)
-            total_scores = ig(total_scores)
-            total_from_set = ig(total_from_set)
-        else:
-            total_instances = total_scores = total_from_set = []
+        # p = Pool(32)
+        # voted = p.map(filter_by_voting, [(x, total_instances, voting_th) for x in total_instances])
+        # p.close()
+        # p.join()
+        # p.terminate()
+        with ProcessPoolExecutor(max_workers=None) as executor:
+            voted = executor.map(filter_by_voting, [(x, total_instances, voting_th) for x in total_instances], chunksize=32)
+            voted = list(voted)
+        total_instances = list(compress(total_instances, voted))
+        total_scores = list(compress(total_scores, voted))
+        total_from_set = list(compress(total_from_set, voted))
+
+        watch.stop()
+        logger.debug('voting elapsed=%.5f' % watch.get_elapsed())
+        watch.reset()
 
         # nms
+        watch.start()
+        logger.debug('nms+ size=%d' % len(total_instances))
         instances, scores = Network.nms(total_instances, total_scores, total_from_set)
-        instances = [ndimage.morphology.binary_fill_holes(i) for i in instances]
+        watch.stop()
+        logger.debug('nms elapsed=%.5f' % watch.get_elapsed())
+        watch.reset()
 
         # remove overlaps
+        logger.debug('remove overlaps+')
         sorted_idx = [i[0] for i in sorted(enumerate(instances), key=lambda x: get_size_of_mask(x[1]), reverse=True)]
         instances = [instances[x] for x in sorted_idx]
         scores = [scores[x] for x in sorted_idx]
 
-        instances = Network.remove_overlaps(instances)
+        instances = [ndimage.morphology.binary_fill_holes(i) for i in instances]
+        instances, scores = Network.remove_overlaps(instances, scores)
 
         # TODO : Filter by score?
+        logger.debug('filter by score+')
         score_filter_th = 0.7 if max_mask < 25 else 0.0
         score_filter_th = 0.0
-        logger.debug('filter_by_score=%.3f' % score_filter_th)
-        instances = [i for i, s in zip(instances, scores) if s > score_filter_th]
-        scores = [s for i, s in zip(instances, scores) if s > score_filter_th]
+        if score_filter_th > 0.0:
+            logger.debug('filter_by_score=%.3f' % score_filter_th)
+            instances = [i for i, s in zip(instances, scores) if s > score_filter_th]
+            scores = [s for i, s in zip(instances, scores) if s > score_filter_th]
 
         # instances, scores = instances_pre, scores_pre
         # instances, scores = instances_rescale, scores_rescale
 
+        logger.debug('finishing+')
         image = cv2.resize(image, (w, h), interpolation=cv2.INTER_AREA)
         score_desc = []
         labels = []
@@ -506,6 +538,13 @@ def do_get_multiple_metric(args):
     else:
         label = batch_to_multi_masks(multi_masks_batch, transpose=False)
     return get_multiple_metric(thr_list, instances, label)
+
+
+def filter_by_voting(args):
+    x, total_list, voting_th = args
+    if np.sum(np.array([get_iou(x, x2) for x2 in total_list]) > 0.3) > voting_th:
+        return True
+    return False
 
 
 if __name__ == '__main__':

@@ -34,14 +34,14 @@ class HyperParams:
         self.pre_size_norm_min = 10         # in pixel
         self.pre_size_norm_max = 150         # in pixel
 
-        # 0~6, 7-folds
-        self.data_fold = int(os.environ.get('fold', 0))
+        # 1~7, 7-folds
+        self.data_fold = int(os.environ.get('fold', 1))
         print('---------- data folds = %d ---------' % self.data_fold)
 
-        self.net_dropout_keep = 0.85
+        self.net_dropout_keep = 0.9
         self.net_bn_decay = 0.9
         self.net_bn_epsilon = 0.001
-        self.net_init_stddev = 0.02
+        self.net_init_stddev = 0.01
 
         self.unet_base_feature = 32
         self.unet_step_size = 4
