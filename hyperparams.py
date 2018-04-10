@@ -21,7 +21,7 @@ class HyperParams:
 
         self.opt_decay_steps = 450
         self.opt_decay_rate = 0.98          # 0.3?
-        self.opt_decay_steps_deeplab = 10000
+        self.opt_decay_steps_deeplab = 4000
         self.opt_decay_power_deeplab = 0.9
         self.opt_momentum = 0.9
         self.optimizer = 'adam'
@@ -38,10 +38,10 @@ class HyperParams:
         self.data_fold = int(os.environ.get('fold', 0))
         print('---------- data folds = %d ---------' % self.data_fold)
 
-        self.net_dropout_keep = 0.9         # 0.8?
+        self.net_dropout_keep = 0.85
         self.net_bn_decay = 0.9
         self.net_bn_epsilon = 0.001
-        self.net_init_stddev = 0.01
+        self.net_init_stddev = 0.02
 
         self.unet_base_feature = 32
         self.unet_step_size = 4

@@ -6,7 +6,7 @@ from data_augmentation import data_to_segment_input, \
     data_to_image, random_flip_lr, random_flip_ud, random_scaling, random_affine, \
     random_color, data_to_normalize1, data_to_elastic_transform_wrapper, resize_shortedge_if_small, random_crop, \
     center_crop, random_color2, erosion_mask, resize_shortedge, mask_size_normalize, crop_mirror, pad_if_small, \
-    mirror_pad, center_crop_if_tcga
+    mirror_pad, center_crop_if_tcga, random_add_thick_area
 from data_feeder import CellImageDataManagerTrain, CellImageDataManagerValid, CellImageDataManagerTest
 from tensorpack.dataflow.common import BatchData, MapData, MapDataComponent
 from tensorpack.dataflow.parallel import PrefetchData, MultiThreadPrefetchData
@@ -153,6 +153,7 @@ class NetworkUnetValid(NetworkBasic):
         ds_train = CellImageDataManagerTrain()
         # ds_train = MapDataComponent(ds_train, random_affine)  # TODO : no improvement?
         ds_train = MapDataComponent(ds_train, random_color)
+        ds_train = MapDataComponent(ds_train, random_add_thick_area)
         # ds_train = MapDataComponent(ds_train, random_scaling)
         ds_train = MapDataComponent(ds_train, mask_size_normalize)  # Resize by instance size - normalization
         ds_train = MapDataComponent(ds_train, lambda x: resize_shortedge_if_small(x, self.img_size))
@@ -193,7 +194,7 @@ class NetworkUnetValid(NetworkBasic):
 
         return ds_train, ds_valid, ds_valid2, ds_test
 
-    def inference(self, tf_sess, image):
+    def inference(self, tf_sess, image, cutoff_instance_max=0.0, cutoff_instance_avg=0.0):
         # TODO : Mirror Padding?
         cascades, windows = Network.sliding_window(image, self.img_size, 0.5)
 
@@ -226,8 +227,8 @@ class NetworkUnetValid(NetworkBasic):
             merged_output,
             cutoff=0.5,
             use_separator=False,
-            cutoff_instance_max=0.9,
-            cutoff_instance_avg=0.0
+            cutoff_instance_max=cutoff_instance_max,
+            cutoff_instance_avg=cutoff_instance_avg
         )
 
         # instances = Network.watershed_merged_output(instances)

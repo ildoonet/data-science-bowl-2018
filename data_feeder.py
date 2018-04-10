@@ -28,6 +28,8 @@ logger.addHandler(ch)
 master_dir_train = '/data/public/rw/datasets/dsb2018/train'
 master_dir_test = '/data/public/rw/datasets/dsb2018/test'
 SPLIT_IDX = 576
+
+# train/valid set k folds implementation
 ORIG_DATA_SIZE = len(list(next(os.walk(master_dir_train))[1]))
 IDX_LIST = list(range(ORIG_DATA_SIZE))
 VALID_IDX_LIST = IDX_LIST[-94*(HyperParams.get().data_fold+1):][:94]
@@ -37,7 +39,9 @@ assert len(VALID_IDX_LIST) == 94
 assert len(TRAIN_IDX_LIST) == 576
 
 # extra1 ref : https://www.kaggle.com/voglinio/external-h-e-data-with-mask-annotations/notebook
+# extra2 ref : https://www.kaggle.com/branislav1991/converting-tnbc-external-data-to-dsb2018-format/
 extra1_dir = '/data/public/rw/datasets/dsb2018/extra_data'
+extra2_dir = '/data/public/rw/datasets/dsb2018/extra_data_tnbc'
 
 
 class CellImageData:
@@ -181,6 +185,8 @@ class CellImageDataManager(RNGDataFlow):
             if 'TCGA' in idx:
                 # extra1 dataset
                 yield [CellImageData(idx, extra1_dir, ext='tif')]
+            elif 'TNBC' in idx:
+                yield [CellImageData(idx, extra2_dir, ext='png')]
             else:
                 # default dataset
                 yield [CellImageData(idx, self.path)]
@@ -189,7 +195,8 @@ class CellImageDataManager(RNGDataFlow):
 class CellImageDataManagerTrain(CellImageDataManager):
     LIST_ORIG = [x for i, x in enumerate(next(os.walk(master_dir_train))[1]) if i in TRAIN_IDX_LIST]
     LIST_EXT1 = list(next(os.walk(extra1_dir))[1])[:21]
-    LIST = LIST_ORIG + LIST_EXT1
+    LIST_EXT2 = list(next(os.walk(extra2_dir))[1])[:-5]
+    LIST = LIST_ORIG + LIST_EXT1 + LIST_EXT2
 
     def __init__(self):
         super().__init__(
@@ -198,13 +205,13 @@ class CellImageDataManagerTrain(CellImageDataManager):
             CellImageDataManagerTrain.LIST,
             True
         )
-        # TODO : train/valid set k folds implementation
 
 
 class CellImageDataManagerValid(CellImageDataManager):
     LIST_ORIG = [x for i, x in enumerate(next(os.walk(master_dir_train))[1]) if i in VALID_IDX_LIST]
     LIST_EXT1 = list(next(os.walk(extra1_dir))[1])[-9:]
-    LIST = LIST_EXT1 + LIST_ORIG
+    LIST_EXT2 = list(next(os.walk(extra2_dir))[1])[-5:]
+    LIST = LIST_EXT2 + LIST_EXT1 + LIST_ORIG
 
     def __init__(self):
         super().__init__(

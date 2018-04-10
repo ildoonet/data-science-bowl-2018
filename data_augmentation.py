@@ -429,3 +429,19 @@ def get_max_size_of_masks(masks):
 
 # TODO : Image Drop Augmentation, imgaug pepper? dropout? blur? constrast?
 # TODO : Thick line Occlusion, add/multiply some values? sharpen?
+
+
+def random_add_thick_area(data):
+    s = random.randint(0, 9)
+    if 0 < s:
+        return data
+
+    img = data.img
+    overlay = img.copy()
+
+    pt1, pt2 = np.random.randint(0, max(img.shape[0], img.shape[1]), size=(2, 2))
+    cv2.rectangle(overlay, tuple(pt1), tuple(pt2), (255, 255, 255), thickness=cv2.FILLED)
+
+    alpha = np.random.random()
+    data.img = cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0)
+    return data

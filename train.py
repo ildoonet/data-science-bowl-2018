@@ -5,6 +5,7 @@ from multiprocessing.pool import Pool
 
 import sys
 from operator import itemgetter
+from scipy import ndimage
 
 import cv2
 import datetime
@@ -14,7 +15,7 @@ import tensorflow as tf
 from tqdm import tqdm
 
 from checkmate.checkmate import BestCheckpointSaver, get_best_checkpoint
-from data_augmentation import get_max_size_of_masks, mask_size_normalize, center_crop
+from data_augmentation import get_max_size_of_masks, mask_size_normalize, center_crop, get_size_of_mask
 from data_feeder import batch_to_multi_masks, CellImageData, master_dir_test, master_dir_train, \
     CellImageDataManagerValid, CellImageDataManagerTrain, CellImageDataManagerTest, extra1_dir
 from hyperparams import HyperParams
@@ -27,7 +28,7 @@ from network_unet_valid import NetworkUnetValid
 from submission import KaggleSubmission, get_multiple_metric, thr_list, get_iou
 
 logger = logging.getLogger('train')
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 ch = logging.StreamHandler(sys.stdout)
 ch.setLevel(logging.DEBUG)
 formatter = logging.Formatter('[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s')
@@ -66,7 +67,7 @@ class Trainer:
     def run(self, model, epoch=600,
             batchsize=16, learning_rate=0.0001, early_rejection=False,
             valid_interval=10, tag='', save_result=True, checkpoint='',
-            pretrain=False,
+            pretrain=False, skip_train=False, validate_train=True, validate_valid=True,
             logdir='/data/public/rw/kaggle-data-science-bowl/logs/',
             **kwargs):
         self.set_network(model, batchsize)
@@ -143,7 +144,7 @@ class Trainer:
         step = self.sess.run(global_step)
         start_e = (batchsize * step) // CellImageDataManagerTrain().size()
 
-        if epoch > 0:
+        if epoch > 0 and not skip_train:
             try:
                 losses = []
                 for e in range(start_e, epoch):
@@ -202,7 +203,7 @@ class Trainer:
                             best_loss_val = avg
                         valid_writer.add_summary(summary_valid, global_step=step)
 
-                    if avg < 0.16 and e > 50 and (e + 1) % valid_interval == 0:
+                    if avg < 0.16 and e > 300 and (e + 1) % valid_interval == 0:
                         cnt_tps = np.array((len(thr_list)), dtype=np.int32),
                         cnt_fps = np.array((len(thr_list)), dtype=np.int32)
                         cnt_fns = np.array((len(thr_list)), dtype=np.int32)
@@ -213,7 +214,7 @@ class Trainer:
                                                   total=len(
                                                       CellImageDataManagerValid.LIST + CellImageDataManagerValid.LIST_EXT1)):
                             image = dp_valid[0]
-                            inference_result = self.network.inference(self.sess, image)
+                            inference_result = self.network.inference(self.sess, image, cutoff_instance_max=0.9)
                             instances, scores = inference_result['instances'], inference_result['scores']
                             pool_args.append((thr_list, instances, dp_valid[2]))
                         ds_valid_full_d.close()
@@ -357,8 +358,9 @@ class Trainer:
         total_instances = []
         total_scores = []
         total_from_set = []
+        cutoff_instance_max = 0.9
 
-        inference_result = self.network.inference(self.sess, image)
+        inference_result = self.network.inference(self.sess, image, cutoff_instance_max=cutoff_instance_max)
         instances_pre, scores_pre = inference_result['instances'], inference_result['scores']
         instances_pre = Network.resize_instances(instances_pre, target_size=(h, w))
         total_instances = total_instances + instances_pre
@@ -368,7 +370,7 @@ class Trainer:
         # re-inference using flip
         for flip_orientation in range(2):
             flipped = cv2.flip(image.copy(), flip_orientation)
-            inference_result = self.network.inference(self.sess, flipped)
+            inference_result = self.network.inference(self.sess, flipped, cutoff_instance_max=cutoff_instance_max)
             instances_flip, scores_flip = inference_result['instances'], inference_result['scores']
             instances_flip = [cv2.flip(instance.astype(np.uint8), flip_orientation) for instance in instances_flip]
             instances_flip = Network.resize_instances(instances_flip, target_size=(h, w))
@@ -380,17 +382,22 @@ class Trainer:
         # re-inference after rescale image
         def inference_with_scale(image, resize_target):
             image = cv2.resize(image.copy(), None, None, resize_target, resize_target, interpolation=cv2.INTER_AREA)
-            inference_result = self.network.inference(self.sess, image)
+            inference_result = self.network.inference(self.sess, image, cutoff_instance_max=cutoff_instance_max)
             instances_rescale, scores_rescale = inference_result['instances'], inference_result['scores']
 
             instances_rescale = Network.resize_instances(instances_rescale, target_size=(h, w))
             return instances_rescale, scores_rescale
 
         max_mask = get_max_size_of_masks(instances_pre)
+        logger.debug('max_mask=%d' % max_mask)
         resize_target = 80.0 / max_mask
         resize_target = min(2.0, resize_target)
+        resize_target = max(0.5, resize_target)
+        import math
+        # resize_target = 2.0 / (1.0 + math.exp(-1.5*(resize_target - 1.0)))
+        # resize_target = max(0.5, resize_target)
         resize_target = max(228.0 / shortedge, resize_target)
-        resize_target = max(0.75, resize_target)
+        logger.debug('resize_target=%.4f' % resize_target)
 
         instances_rescale, scores_rescale = inference_with_scale(image, resize_target)
         total_instances = total_instances + instances_rescale
@@ -410,8 +417,10 @@ class Trainer:
 
         # TODO : Voting?
         voted_idx = []
+        # voting_th = 4 if max_mask < 25 else 3
+        voting_th = 4
         for i, x in enumerate(total_instances):
-            if np.sum(np.array([get_iou(x, x2) for x2 in total_instances]) > 0.3) > 4:
+            if np.sum(np.array([get_iou(x, x2) for x2 in total_instances]) > 0.3) > voting_th:
                 voted_idx.append(i)
         if len(voted_idx) > 0:
             ig = itemgetter(*voted_idx)
@@ -423,7 +432,22 @@ class Trainer:
 
         # nms
         instances, scores = Network.nms(total_instances, total_scores, total_from_set)
+        instances = [ndimage.morphology.binary_fill_holes(i) for i in instances]
+
+        # remove overlaps
+        sorted_idx = [i[0] for i in sorted(enumerate(instances), key=lambda x: get_size_of_mask(x[1]), reverse=True)]
+        instances = [instances[x] for x in sorted_idx]
+        scores = [scores[x] for x in sorted_idx]
+
         instances = Network.remove_overlaps(instances)
+
+        # TODO : Filter by score?
+        score_filter_th = 0.7 if max_mask < 25 else 0.0
+        score_filter_th = 0.0
+        logger.debug('filter_by_score=%.3f' % score_filter_th)
+        instances = [i for i, s in zip(instances, scores) if s > score_filter_th]
+        scores = [s for i, s in zip(instances, scores) if s > score_filter_th]
+
         # instances, scores = instances_pre, scores_pre
         # instances, scores = instances_rescale, scores_rescale
 
