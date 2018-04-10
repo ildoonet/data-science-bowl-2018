@@ -401,6 +401,10 @@ def mask_size_normalize(data, target_size=None):
 def get_rect_of_mask(img):
     rows = np.any(img, axis=1)
     cols = np.any(img, axis=0)
+    if np.sum(rows) == 0 or np.sum(cols) == 0:
+        print('np.sum(rows):', np.sum(rows))
+        print('np.sum(cols):', np.sum(cols))
+        return 0, 0, 0, 0
     rmin, rmax = np.where(rows)[0][[0, -1]]
     cmin, cmax = np.where(cols)[0][[0, -1]]
     return rmin, rmax, cmin, cmax

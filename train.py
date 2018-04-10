@@ -13,8 +13,7 @@ from tqdm import tqdm
 
 from checkmate.checkmate import BestCheckpointSaver, get_best_checkpoint
 from data_augmentation import get_max_size_of_masks, mask_size_normalize
-from data_feeder import batch_to_multi_masks, CellImageData, master_dir_test, master_dir_train, CellImageDataManager, \
-    CellImageDataManagerTrain, CellImageDataManagerValid
+from data_feeder import batch_to_multi_masks, CellImageData, master_dir_test, master_dir_train
 from hyperparams import HyperParams
 from network import Network
 from network_basic import NetworkBasic
@@ -149,7 +148,7 @@ class Trainer:
                 logger.info('restored from checkpoint, %s' % checkpoint)
 
             step = sess.run(global_step)
-            start_e = (batchsize * step) // CellImageDataManagerTrain(train_data_path).size()
+            start_e = (batchsize * step) // len(list(next(os.walk(train_data_path))[1]))
 
             try:
                 losses = []
@@ -216,8 +215,7 @@ class Trainer:
                         ds_valid_full.reset_state()
                         ds_valid_full_d = ds_valid_full.get_data()
                         for idx, dp_valid in tqdm(enumerate(ds_valid_full_d), desc='validate using the iou metric',
-                                                  total=len(
-                                                      CellImageDataManagerValid(valid_data_path).get_idx_list())):
+                                                  total=len(list(next(os.walk(valid_data_path))[1]))):
                             image = dp_valid[0]
                             instances = network.inference(sess, image)
                             pool_args.append((thr_list, instances, dp_valid[2]))
@@ -269,7 +267,7 @@ class Trainer:
             kaggle_submit = KaggleSubmission(name)
             logger.info('Start to test on validation set.... (may take a while)')
             valid_metrics = []
-            for idx, dp_valid in tqdm(enumerate(ds_valid_full.get_data()), total=len(CellImageDataManagerValid(valid_data_path).get_idx_list())):
+            for idx, dp_valid in tqdm(enumerate(ds_valid_full.get_data()), total=len(list(next(os.walk(valid_data_path))[1]))):
                 image = dp_valid[0]
                 img_h, img_w = image.shape[:2]
                 labels = list(batch_to_multi_masks(dp_valid[2], transpose=False))

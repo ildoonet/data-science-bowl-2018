@@ -149,10 +149,16 @@ class CellImageDataManager(RNGDataFlow):
         for idx in self.idx_list:
             if 'TCGA' in idx:
                 # extra1 dataset
-                yield [CellImageData(idx, self.path, ext='tif')]
+                cell_image_data = CellImageData(idx, self.path, ext='tif')
+                if self.name == 'valid':
+                    print('1. target_id:', cell_image_data.target_id)
+                yield [cell_image_data]
             else:
                 # default dataset
-                yield [CellImageData(idx, self.path)]
+                cell_image_data = CellImageData(idx, self.path)
+                if self.name == 'valid':
+                    print('2. target_id:', cell_image_data.target_id)
+                yield [cell_image_data]
 
     def get_idx_list(self):
         return self.idx_list
