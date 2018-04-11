@@ -91,32 +91,14 @@ class Network:
         return cascades, windows
 
     @staticmethod
-    def parse_merged_output(output, cutoff=0.5, use_separator=False, cutoff_instance_max=0.8, cutoff_instance_avg=0.2):
+    def parse_merged_output(output, cutoff=0.5, cutoff_instance_max=0.8, cutoff_instance_avg=0.2):
         """
         Split 1-channel merged output for instance segmentation
         :param cutoff:
         :param output: (h, w, 1) segmentation image
         :return: list of (h, w, 1). instance-aware segmentations.
         """
-        if use_separator:
-            # Ref: https://www.kaggle.com/bostjanm/overlapping-objects-separation-method/notebook
-            labels = label(output > cutoff, connectivity=1)
-            reconstructed_mask = np.zeros(output.shape, dtype=np.bool)
-            for i in range(1, labels.max() + 1):
-                # separate objects
-                img_ = separation(labels == i)
-                # copy to reconstructed mask
-                reconstructed_mask = reconstructed_mask + img_
-            output = reconstructed_mask
-
-        if cutoff > 0.0:
-            cutoffed = output > cutoff
-        else:
-            # local threshold : https://www.kaggle.com/nirofa95/basic-thresholding-and-morphological-approach/code
-            block_size = 25
-            thresh = threshold_local(output, block_size, method='median', offset=-2)
-            cutoffed = output > thresh
-
+        cutoffed = output > cutoff
         lab_img = label(cutoffed, connectivity=1)
         instances = []
         for i in range(1, lab_img.max() + 1):
@@ -161,7 +143,7 @@ class Network:
     @staticmethod
     def remove_overlaps(instances, scores):
         if len(instances) == 0:
-            return []
+            return [], []
         lab_img = np.zeros(instances[0].shape, dtype=np.int32)
         for i, instance in enumerate(instances):
             lab_img = np.maximum(lab_img, instance * (i + 1))

@@ -194,7 +194,7 @@ class CellImageDataManager(RNGDataFlow):
 
 class CellImageDataManagerTrain(CellImageDataManager):
     LIST_ORIG = [x for i, x in enumerate(next(os.walk(master_dir_train))[1]) if i in TRAIN_IDX_LIST]
-    LIST_EXT1 = list(next(os.walk(extra1_dir))[1])[:21]
+    LIST_EXT1 = list(next(os.walk(extra1_dir))[1])[:-9]
     LIST_EXT2 = list(next(os.walk(extra2_dir))[1])[:-5]
     LIST = LIST_ORIG + LIST_EXT1 + LIST_EXT2
 
@@ -217,7 +217,7 @@ class CellImageDataManagerValid(CellImageDataManager):
         super().__init__(
             'valid',
             master_dir_train,
-            CellImageDataManagerValid.LIST + CellImageDataManagerValid.LIST_EXT1,
+            CellImageDataManagerValid.LIST,
             False
         )
 

@@ -142,7 +142,7 @@ def center_crop(data, w, h, padding=0):
 
 
 def center_crop_if_tcga(data, w, h, padding=0):
-    if 'TCGA' in data.target_id:
+    if 'TCGA' in data.target_id or 'TNBC' in data.target_id:
         return center_crop(data, w, h, padding)
     return data
 

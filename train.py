@@ -1,12 +1,11 @@
 import logging
 
 import os
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 from multiprocessing.pool import Pool
 from itertools import compress
 
 import sys
-from operator import itemgetter
 from scipy import ndimage
 
 import cv2
@@ -52,7 +51,7 @@ class Trainer:
         elif model == 'simple_unet':
             self.network = NetworkUnet(batchsize, unet_weight=True)
         elif model == 'unet':
-            self.network = NetworkUnetValid(batchsize, unet_weight=True)
+            self.network = NetworkUnetValid(batchsize)
         elif model == 'deeplabv3p':
             self.network = NetworkDeepLabV3p(batchsize)
         elif model == 'simple_fusion':
@@ -114,7 +113,7 @@ class Trainer:
         train_writer = tf.summary.FileWriter(logdir + name + '/train', self.sess.graph)
         valid_writer = tf.summary.FileWriter(logdir + name + '/valid', self.sess.graph)
 
-        logger.info('training started+')
+        logger.info('initialization+')
         if not checkpoint:
             self.sess.run(tf.global_variables_initializer())
 
@@ -145,21 +144,19 @@ class Trainer:
             logger.info('restored from checkpoint, %s' % checkpoint)
 
         step = self.sess.run(global_step)
-        start_e = (batchsize * step) // CellImageDataManagerTrain().size()
+        start_e = (batchsize * step) // len(CellImageDataManagerTrain.LIST)
 
+        logger.info('training started+')
         if epoch > 0 and not skip_train:
             try:
                 losses = []
                 for e in range(start_e, epoch):
                     loss_val_avg = []
                     train_cnt = 0
-                    ds_train.reset_state()
-                    ds_train_d = ds_train.get_data()
-                    for dp_train in ds_train_d:
+                    for dp_train in ds_train.get_data():
                         _, loss_val, summary_train = self.sess.run([train_op, net_loss, s_train], feed_dict=self.network.get_feeddict(dp_train, True))
                         loss_val_avg.append(loss_val)
                         train_cnt += 1
-                    ds_train_d.close()
 
                     step, lr = self.sess.run([global_step, learning_rate_v])
                     loss_val_avg = sum(loss_val_avg) / len(loss_val_avg)
@@ -199,16 +196,14 @@ class Trainer:
                             best_loss_val = avg
                         valid_writer.add_summary(summary_valid, global_step=step)
 
-                    if avg < 0.16 and e > 300 and (e + 1) % valid_interval == 0:
+                    if avg < 0.16 and e >= 100 and (e + 1) % valid_interval == 0:
                         cnt_tps = np.array((len(thr_list)), dtype=np.int32),
                         cnt_fps = np.array((len(thr_list)), dtype=np.int32)
                         cnt_fns = np.array((len(thr_list)), dtype=np.int32)
                         pool_args = []
                         ds_valid_full.reset_state()
                         ds_valid_full_d = ds_valid_full.get_data()
-                        for idx, dp_valid in tqdm(enumerate(ds_valid_full_d), desc='validate using the iou metric',
-                                                  total=len(
-                                                      CellImageDataManagerValid.LIST + CellImageDataManagerValid.LIST_EXT1)):
+                        for idx, dp_valid in tqdm(enumerate(ds_valid_full_d), desc='validate using the iou metric', total=len(CellImageDataManagerValid.LIST)):
                             image = dp_valid[0]
                             inference_result = self.network.inference(self.sess, image, cutoff_instance_max=0.9)
                             instances, scores = inference_result['instances'], inference_result['scores']
@@ -436,14 +431,14 @@ class Trainer:
         logger.debug('voting+ size=%d' % len(total_instances))
         # TODO : Voting?
         # voting_th = 4 if max_mask < 25 else 3
-        voting_th = 4
+        voting_th = 3
         # p = Pool(32)
         # voted = p.map(filter_by_voting, [(x, total_instances, voting_th) for x in total_instances])
         # p.close()
         # p.join()
         # p.terminate()
         with ProcessPoolExecutor(max_workers=None) as executor:
-            voted = executor.map(filter_by_voting, [(x, total_instances, voting_th) for x in total_instances], chunksize=32)
+            voted = executor.map(filter_by_voting, [(x, total_instances, voting_th) for x in total_instances], chunksize=64)
             voted = list(voted)
         total_instances = list(compress(total_instances, voted))
         total_scores = list(compress(total_scores, voted))

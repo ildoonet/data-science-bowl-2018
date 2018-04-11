@@ -28,27 +28,22 @@ def get_net_input_size(image_size, num_block):
 
 
 class NetworkUnetValid(NetworkBasic):
-    def __init__(self, batchsize, unet_weight):
-        super().__init__(batchsize, unet_weight)
+    def __init__(self, batchsize):
+        super().__init__(batchsize, unet_weight=True)
 
         self.img_size = 228
         self.num_block = HyperParams.get().unet_step_size
         self.inp_size = get_net_input_size(self.img_size, self.num_block)
         assert (self.inp_size - self.img_size) % 2 == 0
         self.pad_size = (self.inp_size - self.img_size) // 2
-        self.pad_preprocess = True
 
         self.batchsize = batchsize
-        if self.pad_preprocess:
-            self.input_batch = tf.placeholder(tf.float32, shape=(None, self.img_size + self.pad_size * 2, self.img_size + self.pad_size * 2, 3), name='image')
-        else:
-            self.input_batch = tf.placeholder(tf.float32, shape=(None, self.img_size, self.img_size, 3), name='image')
+        self.input_batch = tf.placeholder(tf.float32, shape=(None, self.img_size + self.pad_size * 2, self.img_size + self.pad_size * 2, 3), name='image')
         self.mask_batch = tf.placeholder(tf.float32, shape=(None, self.img_size, self.img_size, 1), name='mask')
         self.weight_batch = tf.placeholder(tf.float32, shape=(None, self.img_size, self.img_size, 1), name='weight')
         self.unused = None
         self.logit = None
         self.output = None
-        self.unet_weight = unet_weight
 
     @staticmethod
     def double_conv(net, nb_filter, scope):
@@ -81,21 +76,10 @@ class NetworkUnetValid(NetworkBasic):
             'normalizer_fn': slim.batch_norm,
             'normalizer_params': batch_norm_params,
             'activation_fn': tf.nn.elu,
-            'weights_regularizer': slim.l2_regularizer(0.001)
+            'weights_regularizer': slim.l2_regularizer(0.0001)
         }
 
         net = self.input_batch
-
-        # mirror padding
-        if not self.pad_preprocess:
-            paddings = tf.constant([
-                [0, 0],
-                [self.pad_size, self.pad_size],
-                [self.pad_size, self.pad_size],
-                [0, 0],
-            ])
-            net = tf.pad(net, paddings, "REFLECT", name='img2inp')
-            assert net.shape[1] == self.inp_size, net.shape[2] == self.inp_size
 
         features = []
         with slim.arg_scope([slim.convolution, slim.conv2d_transpose], **conv_args):
@@ -153,12 +137,12 @@ class NetworkUnetValid(NetworkBasic):
         ds_train = CellImageDataManagerTrain()
         # ds_train = MapDataComponent(ds_train, random_affine)  # TODO : no improvement?
         ds_train = MapDataComponent(ds_train, random_color)
-        ds_train = MapDataComponent(ds_train, random_add_thick_area)
         # ds_train = MapDataComponent(ds_train, random_scaling)
         ds_train = MapDataComponent(ds_train, mask_size_normalize)  # Resize by instance size - normalization
         ds_train = MapDataComponent(ds_train, lambda x: resize_shortedge_if_small(x, self.img_size))
         # ds_train = MapDataComponent(ds_train, lambda x: pad_if_small(x, self.img_size)) # preseve cell's size
-        ds_train = MapDataComponent(ds_train, lambda x: random_crop(x, self.img_size, self.img_size, padding=self.pad_size if self.pad_preprocess else 0))
+        ds_train = MapDataComponent(ds_train, lambda x: random_crop(x, self.img_size, self.img_size, padding=self.pad_size))
+        ds_train = MapDataComponent(ds_train, random_add_thick_area)
         ds_train = MapDataComponent(ds_train, random_flip_lr)
         ds_train = MapDataComponent(ds_train, random_flip_ud)
         # ds_train = MapDataComponent(ds_train, data_to_elastic_transform_wrapper)
@@ -171,7 +155,7 @@ class NetworkUnetValid(NetworkBasic):
 
         ds_valid = CellImageDataManagerValid()
         ds_valid = MapDataComponent(ds_valid, lambda x: resize_shortedge_if_small(x, self.img_size))
-        ds_valid = MapDataComponent(ds_valid, lambda x: random_crop(x, self.img_size, self.img_size, padding=self.pad_size if self.pad_preprocess else 0))
+        ds_valid = MapDataComponent(ds_valid, lambda x: random_crop(x, self.img_size, self.img_size, padding=self.pad_size))
         if self.unet_weight:
             ds_valid = MapDataComponent(ds_valid, erosion_mask)
         ds_valid = MapData(ds_valid, lambda x: data_to_segment_input(x, not self.is_color, self.unet_weight))
@@ -203,7 +187,7 @@ class NetworkUnetValid(NetworkBasic):
             return (seq[pos:pos + size] for pos in range(0, len(seq), size))
 
         outputs = []
-        padding = (self.pad_size if self.pad_preprocess else 0)
+        padding = self.pad_size
         mirror_padded = mirror_pad(image, padding)
         for ws in chunker(windows, 64):
             b = []
@@ -226,7 +210,6 @@ class NetworkUnetValid(NetworkBasic):
         instances, scores = Network.parse_merged_output(
             merged_output,
             cutoff=0.5,
-            use_separator=False,
             cutoff_instance_max=cutoff_instance_max,
             cutoff_instance_avg=cutoff_instance_avg
         )
