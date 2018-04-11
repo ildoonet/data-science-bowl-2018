@@ -32,11 +32,18 @@ SPLIT_IDX = 576
 # train/valid set k folds implementation
 ORIG_DATA_SIZE = len(list(next(os.walk(master_dir_train))[1]))
 IDX_LIST = list(range(ORIG_DATA_SIZE))
-VALID_IDX_LIST = IDX_LIST[-94*HyperParams.get().data_fold:][:94]
-TRAIN_IDX_LIST = sorted(list(set(IDX_LIST) - set(VALID_IDX_LIST)))
 
-assert len(VALID_IDX_LIST) == 94
-assert len(TRAIN_IDX_LIST) == 576
+if HyperParams.get().data_fold > 0:
+    VALID_IDX_LIST = IDX_LIST[-94*HyperParams.get().data_fold:][:94]
+    TRAIN_IDX_LIST = sorted(list(set(IDX_LIST) - set(VALID_IDX_LIST)))
+    assert len(VALID_IDX_LIST) == 94, len(VALID_IDX_LIST)
+    assert len(TRAIN_IDX_LIST) == 576, len(TRAIN_IDX_LIST)
+else:
+    # to test all images
+    VALID_IDX_LIST = IDX_LIST
+    TRAIN_IDX_LIST = []
+    assert len(VALID_IDX_LIST) == 670, len(VALID_IDX_LIST)
+    assert len(TRAIN_IDX_LIST) == 0, len(TRAIN_IDX_LIST)
 
 # extra1 ref : https://www.kaggle.com/voglinio/external-h-e-data-with-mask-annotations/notebook
 # extra2 ref : https://www.kaggle.com/branislav1991/converting-tnbc-external-data-to-dsb2018-format/

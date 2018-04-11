@@ -2,6 +2,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import slim
 
+from commons import chunker
 from data_augmentation import data_to_segment_input, \
     data_to_image, random_flip_lr, random_flip_ud, random_scaling, random_affine, \
     random_color, data_to_normalize1, data_to_elastic_transform_wrapper, resize_shortedge_if_small, random_crop, \
@@ -183,9 +184,6 @@ class NetworkUnetValid(NetworkBasic):
         cascades, windows = Network.sliding_window(image, self.img_size, 0.5)
 
         # by batch
-        def chunker(seq, size):
-            return (seq[pos:pos + size] for pos in range(0, len(seq), size))
-
         outputs = []
         padding = self.pad_size
         mirror_padded = mirror_pad(image, padding)

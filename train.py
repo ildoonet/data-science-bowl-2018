@@ -8,6 +8,7 @@ from itertools import compress
 import sys
 from scipy import ndimage
 
+import pickle
 import cv2
 import datetime
 import fire
@@ -16,6 +17,7 @@ import tensorflow as tf
 from tqdm import tqdm
 
 from checkmate.checkmate import BestCheckpointSaver, get_best_checkpoint
+from commons import chunker
 from data_augmentation import get_max_size_of_masks, mask_size_normalize, center_crop, get_size_of_mask
 from data_feeder import batch_to_multi_masks, CellImageData, master_dir_test, master_dir_train, \
     CellImageDataManagerValid, CellImageDataManagerTrain, CellImageDataManagerTest, extra1_dir, extra2_dir
@@ -44,6 +46,8 @@ class Trainer:
         self.batchsize = 16
         self.network = None
         self.sess = None
+
+        self.ensembles = None
 
     def set_network(self, model, batchsize=16):
         if model == 'basic':
@@ -245,37 +249,39 @@ class Trainer:
 
         # show sample in train set : show_train > 0
         kaggle_submit = KaggleSubmission(name)
-        logger.info('Start to test on training set.... (may take a while)')
-        train_metrics = []
-        for single_id in tqdm(CellImageDataManagerTrain.LIST[:20], desc='training set test'):
-            result = self.single_id(None, None, single_id, set_type='train', show=False, verbose=False)
-            image = result['image']
-            labels = result['labels']
-            instances = result['instances']
-            score = result['score']
-            score_desc = result['score_desc']
+        if validate_train in [True, 'True', 'true']:
+            logger.info('Start to test on training set.... (may take a while)')
+            train_metrics = []
+            for single_id in tqdm(CellImageDataManagerTrain.LIST[:20], desc='training set test'):
+                result = self.single_id(None, None, single_id, set_type='train', show=False, verbose=False)
+                image = result['image']
+                labels = result['labels']
+                instances = result['instances']
+                score = result['score']
+                score_desc = result['score_desc']
 
-            img_vis = Network.visualize(image, labels, instances, None)
-            kaggle_submit.save_train_image(single_id, img_vis, score=score, score_desc=score_desc)
-            train_metrics.append(score)
-        logger.info('trainset validation ends. score=%.4f' % np.mean(train_metrics))
+                img_vis = Network.visualize(image, labels, instances, None)
+                kaggle_submit.save_train_image(single_id, img_vis, score=score, score_desc=score_desc)
+                train_metrics.append(score)
+            logger.info('trainset validation ends. score=%.4f' % np.mean(train_metrics))
 
         # show sample in valid set : show_valid > 0
-        logger.info('Start to test on validation set.... (may take a while)')
-        valid_metrics = []
-        for single_id in tqdm(CellImageDataManagerValid.LIST, desc='validation set test'):
-            result = self.single_id(None, None, single_id, set_type='train', show=False, verbose=False)
-            image = result['image']
-            labels = result['labels']
-            instances = result['instances']
-            score = result['score']
-            score_desc = result['score_desc']
+        if validate_valid in [True, 'True', 'true']:
+            logger.info('Start to test on validation set.... (may take a while)')
+            valid_metrics = []
+            for single_id in tqdm(CellImageDataManagerValid.LIST, desc='validation set test'):
+                result = self.single_id(None, None, single_id, set_type='train', show=False, verbose=False)
+                image = result['image']
+                labels = result['labels']
+                instances = result['instances']
+                score = result['score']
+                score_desc = result['score_desc']
 
-            img_vis = Network.visualize(image, labels, instances, None)
-            kaggle_submit.save_valid_image(single_id, img_vis, score=score, score_desc=score_desc)
-            kaggle_submit.valid_instances[single_id] = (instances, result['instance_scores'])
-            valid_metrics.append(score)
-        logger.info('validation ends. score=%.4f' % np.mean(valid_metrics))
+                img_vis = Network.visualize(image, labels, instances, None)
+                kaggle_submit.save_valid_image(single_id, img_vis, score=score, score_desc=score_desc)
+                kaggle_submit.valid_instances[single_id] = (instances, result['instance_scores'])
+                valid_metrics.append(score)
+            logger.info('validation ends. score=%.4f' % np.mean(valid_metrics))
 
         # show sample in test set
         logger.info('saving...')
@@ -319,6 +325,19 @@ class Trainer:
         logger.info('mScore = %.5f' % mIOU)
         return mIOU
 
+    def _get_cell_data(self, single_id, set_type):
+        if 'TCGA' in single_id:
+            d = CellImageData(single_id, extra1_dir, ext='tif')
+            # generally, TCGAs have lots of instances -> slow matching performance
+            d = center_crop(d, 224, 224, padding=0)
+        elif 'TNBC' in single_id:
+            d = CellImageData(single_id, extra2_dir, ext='png')
+            # generally, TCGAs have lots of instances -> slow matching performance
+            d = center_crop(d, 224, 224, padding=0)
+        else:
+            d = CellImageData(single_id, (master_dir_train if set_type == 'train' else master_dir_test))
+        return d
+
     def single_id(self, model, checkpoint, single_id, set_type='train', show=True, verbose=True):
         if model:
             self.set_network(model)
@@ -331,16 +350,7 @@ class Trainer:
             if verbose:
                 logger.info('restored from checkpoint, %s' % checkpoint)
 
-        if 'TCGA' in single_id:
-            d = CellImageData(single_id, extra1_dir, ext='tif')
-            # generally, TCGAs have lots of instances -> slow matching performance
-            d = center_crop(d, 224, 224, padding=0)
-        elif 'TNBC' in single_id:
-            d = CellImageData(single_id, extra2_dir, ext='png')
-            # generally, TCGAs have lots of instances -> slow matching performance
-            d = center_crop(d, 224, 224, padding=0)
-        else:
-            d = CellImageData(single_id, (master_dir_train if set_type == 'train' else master_dir_test))
+        d = self._get_cell_data(single_id, set_type)
         h, w = d.img.shape[:2]
         shortedge = min(h, w)
         if verbose:
@@ -431,7 +441,7 @@ class Trainer:
         logger.debug('voting+ size=%d' % len(total_instances))
         # TODO : Voting?
         # voting_th = 4 if max_mask < 25 else 3
-        voting_th = 3
+        voting_th = 4
         # p = Pool(32)
         # voted = p.map(filter_by_voting, [(x, total_instances, voting_th) for x in total_instances])
         # p.close()
@@ -451,7 +461,7 @@ class Trainer:
         # nms
         watch.start()
         logger.debug('nms+ size=%d' % len(total_instances))
-        instances, scores = Network.nms(total_instances, total_scores, total_from_set)
+        instances, scores = Network.nms(total_instances, total_scores, total_from_set, thresh=0.3)
         watch.stop()
         logger.debug('nms elapsed=%.5f' % watch.get_elapsed())
         watch.reset()
@@ -467,7 +477,6 @@ class Trainer:
 
         # TODO : Filter by score?
         logger.debug('filter by score+')
-        score_filter_th = 0.7 if max_mask < 25 else 0.0
         score_filter_th = 0.0
         if score_filter_th > 0.0:
             logger.debug('filter_by_score=%.3f' % score_filter_th)
@@ -524,6 +533,197 @@ class Trainer:
                 'score_desc': score_desc
             }
 
+    def _load_ensembles(self, model):
+        ensemble_models = {
+            'stage1_test': {
+                'rcnn': [
+                ],
+                'unet': [
+                    "/data/public/rw/kaggle-data-science-bowl/submissions/lb525_ensemble_s80px(0.5-2.0)xflip/submission_lb525.pkl"
+                ]
+            },
+            'stage1_unet': {
+                'rcnn': [
+                ],
+                'unet': [
+                    "/data/public/rw/kaggle-data-science-bowl/submissions/lb525_ensemble_s80px(0.5-2.0)xflip/submission_lb525.pkl",
+                    "/data/public/rw/kaggle-data-science-bowl/submissions/stage1_folds7/unetv1_fold1_thick_unet_lr=0.00010000_epoch=600_bs=16/submission.pkl",
+                    "/data/public/rw/kaggle-data-science-bowl/submissions/stage1_folds7/unetv1_fold2_thick_unet_lr=0.00010000_epoch=600_bs=16/submission.pkl",
+                    "/data/public/rw/kaggle-data-science-bowl/submissions/stage1_folds7/unetv1_fold3_thick_unet_lr=0.00010000_epoch=600_bs=16/submission.pkl",
+                    "/data/public/rw/kaggle-data-science-bowl/submissions/stage1_folds7/unetv1_fold4_thick_unet_lr=0.00010000_epoch=600_bs=16/submission.pkl",
+                    "/data/public/rw/kaggle-data-science-bowl/submissions/stage1_folds7/unetv1_fold5_thick_unet_lr=0.00010000_epoch=600_bs=16/submission.pkl",
+                    "/data/public/rw/kaggle-data-science-bowl/submissions/stage1_folds7/unetv1_fold6_thick_unet_lr=0.00010000_epoch=600_bs=16/submission.pkl",
+                    "/data/public/rw/kaggle-data-science-bowl/submissions/stage1_folds7/unetv1_fold7_thick_unet_lr=0.00010000_epoch=600_bs=16/submission.pkl",
+                ]
+            }
+        }
+
+        if self.ensembles is not None:
+            return
+        self.ensembles = {'rcnn': [], 'unet': []}
+
+        # TODO : RCNN Load
+
+        models = ensemble_models[model]
+        for path in models['unet']:
+            with open(path, 'rb') as f:
+                data = pickle.load(f)
+                self.ensembles['unet'].append(data)
+
+    def ensemble_models(self, model='stage1_unet', set_type='test', tag='default'):
+        kaggle_submit = KaggleSubmission('ensemble_%s_%s' % (tag, model))
+
+        # show sample in test set
+        logger.info('testset...')
+        for single_id in tqdm(CellImageDataManagerTest.LIST, desc='test set evaluation'):
+            result = self.ensemble_models_id(single_id, set_type=set_type, model=model, show=False, verbose=False)
+            image = result['image']
+            instances = result['instances']
+            img_h, img_w = image.shape[:2]
+
+            img_vis = Network.visualize(image, None, instances, None)
+
+            # save to submit
+            instances = Network.resize_instances(instances, (img_h, img_w))
+            kaggle_submit.save_image(single_id, img_vis)
+            kaggle_submit.test_instances[single_id] = (instances, result['instance_scores'])
+            kaggle_submit.add_result(single_id, instances)
+        kaggle_submit.save()
+
+    def ensemble_models_id(self, single_id, set_type='train', model='stage1_unet', show=True, verbose=True):
+        self._load_ensembles(model)
+        d = self._get_cell_data(single_id, set_type)
+
+        total_model_size = len(self.ensembles['rcnn']) + len(self.ensembles['unet'])
+        logger.debug('total_model_size=%d rcnn=%d unet=%d' % (total_model_size, len(self.ensembles['rcnn']), len(self.ensembles['unet'])))
+
+        # TODO : RCNN Ensemble
+
+        # TODO : UNet Ensemble
+        total_instances = []
+        total_scores = []
+        for idx, data in enumerate(self.ensembles['unet']):
+            if set_type == 'train':
+                instances, scores = data['valid_instances'].get(single_id, (None, None))
+            else:
+                instances, scores = data['test_instances'].get(single_id, (None, None))
+
+            if instances is None:
+                logger.debug('Not found id=%s in UNet %d Model' % (single_id, idx + 1))
+                continue
+
+            total_instances.extend(instances)
+            total_scores.extend(scores)
+
+        watch = StopWatch()
+        watch.start()
+        logger.debug('voting+ size=%d' % len(total_instances))
+        # TODO : Voting?
+        voting_th = int(total_model_size / 2)
+        voting_th = 3
+        voted = []
+        for ll in chunker(total_instances, 64*8):
+            with ProcessPoolExecutor(max_workers=8) as executor:
+                try:
+                    result = executor.map(filter_by_voting, [(x, total_instances, voting_th) for x in ll], chunksize=64)
+                    voted.extend(list(result))
+                except:
+                    logger.error('%s instances=%d err ' % (single_id, len(total_instances)))
+                    sys.exit(-1)
+
+        total_instances = list(compress(total_instances, voted))
+        total_scores = list(compress(total_scores, voted))
+
+        watch.stop()
+        logger.debug('voting elapsed=%.5f' % watch.get_elapsed())
+        watch.reset()
+
+        # nms
+        watch.start()
+        logger.debug('nms+ size=%d' % len(total_instances))
+        instances, scores = Network.nms(total_instances, total_scores, None, thresh=0.5)
+        watch.stop()
+        logger.debug('nms elapsed=%.5f' % watch.get_elapsed())
+        watch.reset()
+
+        # remove overlaps
+        logger.debug('remove overlaps+')
+        sorted_idx = [i[0] for i in sorted(enumerate(instances), key=lambda x: get_size_of_mask(x[1]), reverse=True)]
+        instances = [instances[x] for x in sorted_idx]
+        scores = [scores[x] for x in sorted_idx]
+
+        instances2 = [ndimage.morphology.binary_fill_holes(i) for i in instances]
+        instances2, scores2 = Network.remove_overlaps(instances2, scores)
+
+        # remove deleted instances
+        voted = []
+        for ll in chunker(instances2, 64 * 8):
+            with ProcessPoolExecutor(max_workers=8) as executor:
+                try:
+                    result = executor.map(filter_by_voting, [(x, instances, 1, 0.5) for x in ll], chunksize=64)
+                    voted.extend(list(result))
+                except:
+                    logger.error('%s instances=%d err2 ' % (single_id, len(total_instances)))
+                    sys.exit(-1)
+
+        instances = list(compress(instances2, voted))
+        scores = list(compress(scores2, voted))
+
+        # TODO : Filter by score?
+        logger.debug('filter by score+')
+        score_filter_th = 0.0   # TODO
+        if score_filter_th > 0.0:
+            logger.debug('filter_by_score=%.3f' % score_filter_th)
+            instances = [i for i, s in zip(instances, scores) if s > score_filter_th]
+            scores = [s for i, s in zip(instances, scores) if s > score_filter_th]
+
+        logger.debug('finishing+')
+        image = d.image(is_gray=False)
+        score_desc = []
+        labels = []
+        if len(d.masks) > 0:  # has label masks
+            labels = list(d.multi_masks(transpose=False))
+            tp, fp, fn = get_multiple_metric(thr_list, instances, labels)
+
+            if verbose:
+                logger.info('instances=%d, labels=%d' % (len(instances), len(labels)))
+            for i, thr in enumerate(thr_list):
+                desc = 'score=%.3f, tp=%d, fp=%d, fn=%d --- iou %.2f' % (
+                    (tp / (tp + fp + fn))[i],
+                    tp[i],
+                    fp[i],
+                    fn[i],
+                    thr
+                )
+                if verbose:
+                    logger.info(desc)
+                score_desc.append(desc)
+            score = np.mean(tp / (tp + fp + fn))
+            if verbose:
+                logger.info('score=%.3f, tp=%.1f, fp=%.1f, fn=%.1f --- mean' % (
+                    score,
+                    np.mean(tp),
+                    np.mean(fp),
+                    np.mean(fn)
+                ))
+        else:
+            score = 0.0
+
+        if show:
+            img_vis = Network.visualize(image, labels, instances, None)
+            cv2.imshow('valid', img_vis)
+            cv2.waitKey(0)
+        else:
+            return {
+                'instance_scores': scores,
+                'score': score,
+                'image': image,
+                'instances': instances,
+                'labels': labels,
+                'score_desc': score_desc
+            }
+
+
 
 def do_get_multiple_metric(args):
     thr_list, instances, multi_masks_batch = args
@@ -536,8 +736,12 @@ def do_get_multiple_metric(args):
 
 
 def filter_by_voting(args):
-    x, total_list, voting_th = args
-    if np.sum(np.array([get_iou(x, x2) for x2 in total_list]) > 0.3) > voting_th:
+    if len(args) == 3:
+        x, total_list, voting_th = args
+        iou_th = 0.3
+    else:
+        x, total_list, voting_th, iou_th = args
+    if np.sum(np.array([get_iou(x, x2) for x2 in total_list]) > iou_th) >= voting_th:
         return True
     return False
 

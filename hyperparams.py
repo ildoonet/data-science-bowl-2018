@@ -38,9 +38,9 @@ class HyperParams:
         self.data_fold = int(os.environ.get('fold', 1))
         print('---------- data folds = %d ---------' % self.data_fold)
 
-        self.net_dropout_keep = 0.9
         self.net_bn_decay = 0.9
         self.net_bn_epsilon = 0.001
+        self.net_dropout_keep = 0.9
         self.net_init_stddev = 0.01
 
         self.unet_base_feature = 32
