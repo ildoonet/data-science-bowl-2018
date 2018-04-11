@@ -11,10 +11,11 @@ from tqdm import tqdm
 from data_augmentation import random_crop_224
 from data_feeder import CellImageDataManagerTrainAll
 
-master_dir_train = '/data/public/rw/datasets/dsb2018/external_data/crowd_sourced/train_100_gray'
+master_dir_train = '/data/public/rw/datasets/dsb2018/external_data/crowd_sourced/train_grayall_tnbc'
+# master_dir_train = '/data/public/rw/datasets/dsb2018/extra_data'
 
-master_dir_origin_ext_train_kmeans = '/data/public/rw/datasets/dsb2018/train_kmeans_100_gray'
-master_dir_origin_ext_valid_kmeans = '/data/public/rw/datasets/dsb2018/valid_kmeans_100_gray'
+master_dir_origin_ext_train_kmeans = '/data/public/rw/datasets/dsb2018/train_kmeans_grayall_tnbc'
+master_dir_origin_ext_valid_kmeans = '/data/public/rw/datasets/dsb2018/valid_kmeans_grayall_tnbc'
 
 ratio = 0.8
 n_clusters = 4
@@ -28,7 +29,7 @@ def cluster_features(features, n_clusters=10):
 
 
 def get_test_valid_split_labels():
-    ds_train = CellImageDataManagerTrainAll()
+    ds_train = CellImageDataManagerTrainAll(master_dir_train)
     ds_train = MapDataComponent(ds_train, random_crop_224)
     ds_train = PrefetchData(ds_train, 1000, 12)
     ds_train_img = ds_train.get_data()
@@ -54,15 +55,19 @@ def get_test_valid_split_labels():
         train_lists.extend(idx_labels[n][:, :int(idx_labels[n].shape[1] * ratio)])
         valid_lists.extend(idx_labels[n][:, int(idx_labels[n].shape[1] * ratio):])
 
+    for n in range(n_clusters):
+        np.random.shuffle(train_lists[n])
+        np.random.shuffle(valid_lists[n])
+
     return train_lists, valid_lists
 
 
 def copy_clustered_image(train_lists, valid_lists):
-    try:
-        shutil.rmtree(os.path.join(master_dir_origin_ext_train_kmeans))
-        shutil.rmtree(os.path.join(master_dir_origin_ext_valid_kmeans))
-    except Exception as err:
-        print('copy_clustered_image error:', err)
+    # try:
+        # shutil.rmtree(os.path.join(master_dir_origin_ext_train_kmeans))
+        # shutil.rmtree(os.path.join(master_dir_origin_ext_valid_kmeans))
+    # except Exception as err:
+    #     print('copy_clustered_image error:', err)
 
     # if file directory does not exist, create new one
     if not os.path.exists(master_dir_origin_ext_train_kmeans):
