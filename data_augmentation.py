@@ -416,6 +416,8 @@ def get_rect_of_mask(img):
 
 
 def get_size_of_mask(img):
+    if np.max(img) == 0:
+        return 0
     rmin, rmax, cmin, cmax = get_rect_of_mask(img)
     return max([rmax - rmin, cmax - cmin])
 

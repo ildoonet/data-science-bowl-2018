@@ -48,5 +48,19 @@ class HyperParams:
 
         self.pre_erosion_iter = 1
         self.post_dilation_iter = 2
-
         self.post_fill_holes = False
+        self.post_filter_th = 0.0
+        self.post_voting_th = 4
+        self.post_cutoff_max_th = 0.9
+        self.post_cutoff_avg_th = 0.0
+        self.test_aug_nms_iou = 0.5
+        self.test_aug_scale_max = 2.0
+        self.test_aug_scale_min = 0.75
+        self.test_aug_scale_t = 80.0
+
+        # ensemble between models
+        self.rcnn_score_rescale = 0.95
+        self.ensemble_voting_th = 3
+        self.ensemble_th_no_rcnn = 0.75
+        self.ensemble_nms_iou = 0.3
+        self.ensemble_score_th = 0.6

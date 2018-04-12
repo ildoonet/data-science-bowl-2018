@@ -303,7 +303,7 @@ class Trainer:
         logger.info('done. epoch=%d best_loss_val=%.4f best_mIOU=%.4f name= %s' % (m_epoch, best_loss_val, best_miou_val, name))
         return best_miou_val, name
 
-    def validate(self, network=None, checkpoint=None):
+    def validate(self, network=None, checkpoint=None, **kwargs):
         if network is not None:
             self.set_network(network)
             self.network.build()
@@ -365,11 +365,12 @@ class Trainer:
         total_instances = []
         total_scores = []
         total_from_set = []
-        cutoff_instance_max = 0.9
+        cutoff_instance_max = HyperParams.get().post_cutoff_max_th
+        cutoff_instance_avg = HyperParams.get().post_cutoff_avg_th
 
         watch.start()
         logger.debug('inference at default scale+')
-        inference_result = self.network.inference(self.sess, image, cutoff_instance_max=cutoff_instance_max)
+        inference_result = self.network.inference(self.sess, image, cutoff_instance_max=cutoff_instance_max, cutoff_instance_avg=cutoff_instance_avg)
         instances_pre, scores_pre = inference_result['instances'], inference_result['scores']
         instances_pre = Network.resize_instances(instances_pre, target_size=(h, w))
         total_instances = total_instances + instances_pre
@@ -383,7 +384,7 @@ class Trainer:
         # re-inference using flip
         for flip_orientation in range(2):
             flipped = cv2.flip(image.copy(), flip_orientation)
-            inference_result = self.network.inference(self.sess, flipped, cutoff_instance_max=cutoff_instance_max)
+            inference_result = self.network.inference(self.sess, flipped, cutoff_instance_max=cutoff_instance_max, cutoff_instance_avg=cutoff_instance_avg)
             instances_flip, scores_flip = inference_result['instances'], inference_result['scores']
             instances_flip = [cv2.flip(instance.astype(np.uint8), flip_orientation) for instance in instances_flip]
             instances_flip = Network.resize_instances(instances_flip, target_size=(h, w))
@@ -400,7 +401,7 @@ class Trainer:
         # re-inference after rescale image
         def inference_with_scale(image, resize_target):
             image = cv2.resize(image.copy(), None, None, resize_target, resize_target, interpolation=cv2.INTER_AREA)
-            inference_result = self.network.inference(self.sess, image, cutoff_instance_max=cutoff_instance_max)
+            inference_result = self.network.inference(self.sess, image, cutoff_instance_max=cutoff_instance_max, cutoff_instance_avg=cutoff_instance_avg)
             instances_rescale, scores_rescale = inference_result['instances'], inference_result['scores']
 
             instances_rescale = Network.resize_instances(instances_rescale, target_size=(h, w))
@@ -408,9 +409,9 @@ class Trainer:
 
         max_mask = get_max_size_of_masks(instances_pre)
         logger.debug('max_mask=%d' % max_mask)
-        resize_target = 80.0 / max_mask
-        resize_target = min(2.0, resize_target)
-        resize_target = max(0.75, resize_target)
+        resize_target = HyperParams.get().test_aug_scale_t / max_mask
+        resize_target = min(HyperParams.get().test_aug_scale_max, resize_target)
+        resize_target = max(HyperParams.get().test_aug_scale_min, resize_target)
         import math
         # resize_target = 2.0 / (1.0 + math.exp(-1.5*(resize_target - 1.0)))
         # resize_target = max(0.5, resize_target)
@@ -440,13 +441,7 @@ class Trainer:
         watch.start()
         logger.debug('voting+ size=%d' % len(total_instances))
         # TODO : Voting?
-        # voting_th = 4 if max_mask < 25 else 3
-        voting_th = 4
-        # p = Pool(32)
-        # voted = p.map(filter_by_voting, [(x, total_instances, voting_th) for x in total_instances])
-        # p.close()
-        # p.join()
-        # p.terminate()
+        voting_th = HyperParams.get().post_voting_th
         with ProcessPoolExecutor(max_workers=None) as executor:
             voted = executor.map(filter_by_voting, [(x, total_instances, voting_th) for x in total_instances], chunksize=64)
             voted = list(voted)
@@ -461,7 +456,7 @@ class Trainer:
         # nms
         watch.start()
         logger.debug('nms+ size=%d' % len(total_instances))
-        instances, scores = Network.nms(total_instances, total_scores, total_from_set, thresh=0.3)
+        instances, scores = Network.nms(total_instances, total_scores, total_from_set, thresh=HyperParams.get().test_aug_nms_iou)
         watch.stop()
         logger.debug('nms elapsed=%.5f' % watch.get_elapsed())
         watch.reset()
@@ -477,14 +472,11 @@ class Trainer:
 
         # TODO : Filter by score?
         logger.debug('filter by score+')
-        score_filter_th = 0.0
+        score_filter_th = HyperParams.get().post_filter_th
         if score_filter_th > 0.0:
             logger.debug('filter_by_score=%.3f' % score_filter_th)
             instances = [i for i, s in zip(instances, scores) if s > score_filter_th]
             scores = [s for i, s in zip(instances, scores) if s > score_filter_th]
-
-        # instances, scores = instances_pre, scores_pre
-        # instances, scores = instances_rescale, scores_rescale
 
         logger.debug('finishing+')
         image = cv2.resize(image, (w, h), interpolation=cv2.INTER_AREA)
@@ -544,6 +536,7 @@ class Trainer:
             },
             'stage1_unet': {
                 'rcnn': [
+                    "/data/public/rw/datasets/dsb2018/pickles/pickled_mask_info_full.pkl"
                 ],
                 'unet': [
                     "/data/public/rw/kaggle-data-science-bowl/submissions/lb525_ensemble_s80px(0.5-2.0)xflip/submission_lb525.pkl",
@@ -562,15 +555,21 @@ class Trainer:
             return
         self.ensembles = {'rcnn': [], 'unet': []}
 
-        # TODO : RCNN Load
-
         models = ensemble_models[model]
+        # TODO : RCNN Load
+        for path in models['rcnn']:
+            with open(path, 'rb') as f:
+                data = pickle.load(f)
+                self.ensembles['rcnn'].append(data)
+
         for path in models['unet']:
             with open(path, 'rb') as f:
                 data = pickle.load(f)
                 self.ensembles['unet'].append(data)
 
-    def ensemble_models(self, model='stage1_unet', set_type='test', tag='default'):
+        logger.debug('_load_ensembles-')
+
+    def ensemble_models(self, model='stage1_unet', set_type='test', tag='default', **kwargs):
         kaggle_submit = KaggleSubmission('ensemble_%s_%s' % (tag, model))
 
         # show sample in test set
@@ -593,15 +592,36 @@ class Trainer:
     def ensemble_models_id(self, single_id, set_type='train', model='stage1_unet', show=True, verbose=True):
         self._load_ensembles(model)
         d = self._get_cell_data(single_id, set_type)
+        logger.debug('image size=%dx%d' % (d.img_h, d.img_w))
 
         total_model_size = len(self.ensembles['rcnn']) + len(self.ensembles['unet'])
         logger.debug('total_model_size=%d rcnn=%d unet=%d' % (total_model_size, len(self.ensembles['rcnn']), len(self.ensembles['unet'])))
 
-        # TODO : RCNN Ensemble
+        rcnn_instances = []
+        rcnn_scores = []
 
-        # TODO : UNet Ensemble
+        # TODO : RCNN Ensemble
+        for idx, data in enumerate(self.ensembles['rcnn']):
+            if set_type == 'train':
+                instances, scores = data['valid_instances'].get(single_id, (None, None))
+            else:
+                # TODO
+                ls = data['test_instances'].get(single_id, None)
+                instances = [x[0] for x in ls]
+                scores = [x[1] for x in ls]
+                logger.debug('rcnn # instances = %d' % len(instances))
+
+            if instances is None:
+                logger.debug('Not found id=%s in UNet %d Model' % (single_id, idx + 1))
+                continue
+
+            rcnn_instances.extend([instance[:d.img_h, :d.img_w] for instance in instances])
+            rcnn_scores.extend([s * HyperParams.get().rcnn_score_rescale for s in scores])     # rescale scores
+
         total_instances = []
         total_scores = []
+
+        # TODO : UNet Ensemble
         for idx, data in enumerate(self.ensembles['unet']):
             if set_type == 'train':
                 instances, scores = data['valid_instances'].get(single_id, (None, None))
@@ -618,18 +638,19 @@ class Trainer:
         watch = StopWatch()
         watch.start()
         logger.debug('voting+ size=%d' % len(total_instances))
+
         # TODO : Voting?
-        voting_th = int(total_model_size / 2)
-        voting_th = 3
+        voting_th = HyperParams.get().ensemble_voting_th
         voted = []
-        for ll in chunker(total_instances, 64*8):
-            with ProcessPoolExecutor(max_workers=8) as executor:
-                try:
-                    result = executor.map(filter_by_voting, [(x, total_instances, voting_th) for x in ll], chunksize=64)
-                    voted.extend(list(result))
-                except:
-                    logger.error('%s instances=%d err ' % (single_id, len(total_instances)))
-                    sys.exit(-1)
+
+        with ProcessPoolExecutor(max_workers=12) as executor:
+            try:
+                args = [(x, total_instances, voting_th) for x in total_instances]
+                result = executor.map(filter_by_voting, args, chunksize=64)
+                voted.extend(list(result))
+            except Exception as e:
+                logger.error('%s instances=%d err=%s' % (single_id, len(total_instances), str(e)))
+                sys.exit(-1)
 
         total_instances = list(compress(total_instances, voted))
         total_scores = list(compress(total_scores, voted))
@@ -641,14 +662,45 @@ class Trainer:
         # nms
         watch.start()
         logger.debug('nms+ size=%d' % len(total_instances))
-        instances, scores = Network.nms(total_instances, total_scores, None, thresh=0.5)
+        instances, scores = Network.nms(total_instances, total_scores, None, thresh=HyperParams.get().ensemble_nms_iou)
         watch.stop()
         logger.debug('nms elapsed=%.5f' % watch.get_elapsed())
         watch.reset()
 
+        # high threshold if not exists in RCNN
+        voted = []
+        with ProcessPoolExecutor(max_workers=12) as executor:
+            try:
+                result = executor.map(filter_by_voting, [(x, rcnn_instances, 1, 0.3) for x in instances], chunksize=64)
+                voted.extend(list(result))
+            except Exception as e:
+                logger.error('%s instances=%d err_rcnn=%s' % (single_id, len(total_instances), str(e)))
+                sys.exit(-1)
+
+        new_instances = []
+        new_scores = []
+        for instance, score, v in zip(instances, scores, voted):
+            if v:
+                new_instances.append(instance)
+                new_scores.append(score)
+            elif score > HyperParams.get().ensemble_th_no_rcnn:
+                new_instances.append(instance)
+                new_scores.append(score)
+        instances, scores = new_instances, new_scores
+
+        # nms with rcnn
+        instances = instances + rcnn_instances
+        scores = scores + rcnn_scores
+        watch.start()
+        logger.debug('nms_rcnn+ size=%d' % len(instances))
+        instances, scores = Network.nms(instances, scores, None, thresh=HyperParams.get().ensemble_nms_iou)
+        watch.stop()
+        logger.debug('nms_rcnn elapsed=%.5f' % watch.get_elapsed())
+        watch.reset()
+
         # remove overlaps
         logger.debug('remove overlaps+')
-        sorted_idx = [i[0] for i in sorted(enumerate(instances), key=lambda x: get_size_of_mask(x[1]), reverse=True)]
+        sorted_idx = [i[0] for i in sorted(enumerate(instances), key=lambda x: get_size_of_mask(x[1]), reverse=False)]
         instances = [instances[x] for x in sorted_idx]
         scores = [scores[x] for x in sorted_idx]
 
@@ -657,21 +709,20 @@ class Trainer:
 
         # remove deleted instances
         voted = []
-        for ll in chunker(instances2, 64 * 8):
-            with ProcessPoolExecutor(max_workers=8) as executor:
-                try:
-                    result = executor.map(filter_by_voting, [(x, instances, 1, 0.5) for x in ll], chunksize=64)
-                    voted.extend(list(result))
-                except:
-                    logger.error('%s instances=%d err2 ' % (single_id, len(total_instances)))
-                    sys.exit(-1)
+        with ProcessPoolExecutor(max_workers=12) as executor:
+            try:
+                result = executor.map(filter_by_voting, [(x, instances, 1, 0.75) for x in instances2], chunksize=64)
+                voted.extend(list(result))
+            except:
+                logger.error('%s instances=%d err2 ' % (single_id, len(total_instances)))
+                sys.exit(-1)
 
         instances = list(compress(instances2, voted))
         scores = list(compress(scores2, voted))
 
         # TODO : Filter by score?
         logger.debug('filter by score+')
-        score_filter_th = 0.0   # TODO
+        score_filter_th = HyperParams.get().ensemble_score_th
         if score_filter_th > 0.0:
             logger.debug('filter_by_score=%.3f' % score_filter_th)
             instances = [i for i, s in zip(instances, scores) if s > score_filter_th]
@@ -722,7 +773,6 @@ class Trainer:
                 'labels': labels,
                 'score_desc': score_desc
             }
-
 
 
 def do_get_multiple_metric(args):
