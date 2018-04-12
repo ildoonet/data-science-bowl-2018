@@ -19,6 +19,8 @@ class HyperParams:
         else:
             HyperParams.__instance = self
 
+        self.dataset_stage = 2
+
         self.opt_decay_steps = 450
         self.opt_decay_rate = 0.98          # 0.3?
         self.opt_decay_steps_deeplab = 4000

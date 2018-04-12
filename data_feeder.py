@@ -25,25 +25,55 @@ ch.setFormatter(formatter)
 logger.handlers = []
 logger.addHandler(ch)
 
-master_dir_train = '/data/public/rw/datasets/dsb2018/train'
-master_dir_test = '/data/public/rw/datasets/dsb2018/test'
-SPLIT_IDX = 576
+if HyperParams.get().dataset_stage == 1:
+    master_dir_train = '/data/public/rw/datasets/dsb2018/train'
+    master_dir_train2 = None
+    master_dir_test = '/data/public/rw/datasets/dsb2018/test'
+    SPLIT_IDX = 576
 
-# train/valid set k folds implementation
-ORIG_DATA_SIZE = len(list(next(os.walk(master_dir_train))[1]))
-IDX_LIST = list(range(ORIG_DATA_SIZE))
+    # train/valid set k folds implementation
+    IDX_LIST = list(next(os.walk(master_dir_train))[1])
 
-if HyperParams.get().data_fold > 0:
-    VALID_IDX_LIST = IDX_LIST[-94*HyperParams.get().data_fold:][:94]
-    TRAIN_IDX_LIST = sorted(list(set(IDX_LIST) - set(VALID_IDX_LIST)))
-    assert len(VALID_IDX_LIST) == 94, len(VALID_IDX_LIST)
-    assert len(TRAIN_IDX_LIST) == 576, len(TRAIN_IDX_LIST)
+    logger.info('Loading Dataset for Stage1(%d)' % (len(IDX_LIST)))
+
+    if HyperParams.get().data_fold > 0:
+        VALID_IDX_LIST = IDX_LIST[-94*HyperParams.get().data_fold:][:94]
+        TRAIN_IDX_LIST = sorted(list(set(IDX_LIST) - set(VALID_IDX_LIST)))
+        assert len(VALID_IDX_LIST) == 94, len(VALID_IDX_LIST)
+        assert len(TRAIN_IDX_LIST) == 576, len(TRAIN_IDX_LIST)
+    else:
+        # to test all images
+        VALID_IDX_LIST = IDX_LIST
+        TRAIN_IDX_LIST = []
+        assert len(VALID_IDX_LIST) == 670, len(VALID_IDX_LIST)
+        assert len(TRAIN_IDX_LIST) == 0, len(TRAIN_IDX_LIST)
 else:
-    # to test all images
-    VALID_IDX_LIST = IDX_LIST
-    TRAIN_IDX_LIST = []
-    assert len(VALID_IDX_LIST) == 670, len(VALID_IDX_LIST)
-    assert len(TRAIN_IDX_LIST) == 0, len(TRAIN_IDX_LIST)
+    master_dir_train = '/data/public/rw/datasets/dsb2018/train'
+    master_dir_train2 = '/data/public/rw/datasets/dsb2018/test_stage1'
+    master_dir_test = '/data/public/rw/datasets/dsb2018/stage2_test_final'
+    SPLIT_IDX_TRAIN = 572
+    SPLIT_IDX_VALID = 51
+
+    # train/valid set k folds implementation
+    IDX_LIST = list(next(os.walk(master_dir_train))[1])
+    IDX_LIST2 = list(next(os.walk(master_dir_train2))[1])
+
+    logger.info('Loading Dataset for Stage2(%d+%d)' % (len(IDX_LIST), len(IDX_LIST2)))
+
+    if HyperParams.get().data_fold > 0:
+        VALID_IDX_LIST = IDX_LIST[-98 * HyperParams.get().data_fold:][:98]
+        TRAIN_IDX_LIST = sorted(list(set(IDX_LIST) - set(VALID_IDX_LIST)))
+        VALID_IDX_LIST += IDX_LIST2[-14 * HyperParams.get().data_fold:][:14]
+        TRAIN_IDX_LIST += sorted(list(set(IDX_LIST2) - set(VALID_IDX_LIST)))
+        assert len(VALID_IDX_LIST) == 98 + 14, len(VALID_IDX_LIST)
+        assert len(TRAIN_IDX_LIST) == 572 + 51, len(TRAIN_IDX_LIST)
+    else:
+        # to test all images
+        VALID_IDX_LIST = IDX_LIST + IDX_LIST2
+        TRAIN_IDX_LIST = []
+        assert len(VALID_IDX_LIST) == 670 + 66, len(VALID_IDX_LIST)
+        assert len(TRAIN_IDX_LIST) == 0, len(TRAIN_IDX_LIST)
+
 
 # extra1 ref : https://www.kaggle.com/voglinio/external-h-e-data-with-mask-annotations/notebook
 # extra2 ref : https://www.kaggle.com/branislav1991/converting-tnbc-external-data-to-dsb2018-format/
@@ -194,13 +224,15 @@ class CellImageDataManager(RNGDataFlow):
                 yield [CellImageData(idx, extra1_dir, ext='tif')]
             elif 'TNBC' in idx:
                 yield [CellImageData(idx, extra2_dir, ext='png')]
+            elif idx in IDX_LIST2:
+                yield [CellImageData(idx, master_dir_train2, ext='png')]
             else:
                 # default dataset
                 yield [CellImageData(idx, self.path)]
 
 
 class CellImageDataManagerTrain(CellImageDataManager):
-    LIST_ORIG = [x for i, x in enumerate(next(os.walk(master_dir_train))[1]) if i in TRAIN_IDX_LIST]
+    LIST_ORIG = TRAIN_IDX_LIST
     LIST_EXT1 = list(next(os.walk(extra1_dir))[1])[:-9]
     LIST_EXT2 = list(next(os.walk(extra2_dir))[1])[:-5]
     LIST = LIST_ORIG + LIST_EXT1 + LIST_EXT2

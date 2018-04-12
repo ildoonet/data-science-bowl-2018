@@ -162,7 +162,7 @@ def get_multiple_metric(thr_list, instances, label_trues):
 
 
 class KaggleSubmission:
-    BASEPATH = os.path.dirname(os.path.realpath(__file__)) + "/submissions"
+    BASEPATH = os.path.dirname(os.path.realpath(__file__)) + ("/submissions" if HyperParams.get().dataset_stage == 1 else "/submissions_stage2")
     CNAME = 'data-science-bowl-2018'
 
     def __init__(self, name):
@@ -205,6 +205,11 @@ class KaggleSubmission:
         :param idx: test sample id
         :param instances: list of (h, w, 1) numpy containing
         """
+        if len(instances) == 0:
+            self.test_ids.append(idx)
+            self.rles.append([])
+            return
+
         for instance in instances:
             rles, cnt = rle_encoding(instance)
 
