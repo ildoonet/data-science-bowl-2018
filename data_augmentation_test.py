@@ -4,7 +4,8 @@ import cv2
 import numpy as np
 
 from data_augmentation import resize_shortedge, random_crop, center_crop, resize_shortedge_if_small, \
-    flip, data_to_elastic_transform, random_color2, mask_size_normalize, get_max_size_of_masks, crop, crop_mirror
+    flip, data_to_elastic_transform, random_color2, mask_size_normalize, get_max_size_of_masks, crop, crop_mirror, \
+    random_add_thick_area, random_transparent
 from data_feeder import CellImageData, master_dir_train
 
 
@@ -99,3 +100,21 @@ class TestAugmentation(unittest.TestCase):
 
             # cv2.imshow('size_normalization', d.img)
             # cv2.waitKeyEx(0)
+
+    def test_add_thick_area(self):
+        cv2.imshow('original', self.d.img)
+        cv2.waitKey(0)
+        data = random_add_thick_area(self.d)
+        cv2.imshow('image', data.img)
+        cv2.waitKey(0)
+
+    def test_transparent(self):
+        cv2.imshow('original', self.d.img)
+        cv2.waitKey(0)
+        data = random_transparent(self.d)
+        cv2.imshow('image', data.img)
+        cv2.waitKey(0)
+
+
+if __name__ == "__main__":
+    unittest.main()
