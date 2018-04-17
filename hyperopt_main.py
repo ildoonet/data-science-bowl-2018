@@ -44,28 +44,8 @@ if __name__ == '__main__':
     print(hyperopt.space_eval(space, best))
 
     import json
-    from slackclient import SlackClient
-    slack_token = 'xoxp-142308306661-142322097044-329945619031-c8721e6403a7f9cab4b9bd61270060b3'
-
-    sc = SlackClient(slack_token, proxies={
-        'https': 'http://10.41.249.28:8080',
-        'http': 'http://10.41.249.28:8080',
-    })
-
-    sc.api_call(
-        "chat.postMessage",
-        channel="599-prj-kaggle-gazua",
-        text='Experiment(%s) Finished : %s' % (exp_key, json.dumps(trials.best_trial['result']))
-    )
 
     # automatic submission to Kaggle
     s = KaggleSubmission(trials.best_trial['result']['model_name'])
     msg, submission = s.submit_result('KakaoAutoML hyperopt %s' % exp_key)
-
-    sc.api_call(
-        "chat.postMessage",
-        channel="599-prj-kaggle-gazua",
-        text='Experiment(%s) : %s\nLB Score: %s' % (exp_key, msg['message'], '' if submission is None else submission.publicScore)
-    )
-
-    # PYTHONPATH=/data/private/kaggle-science-bowl-2018/ hyperopt-mongo-worker --mongo=hyper-mongo.devel.kakao.com:10247/curtis_db --poll-interval=1 --max-jobs=4 --exp-key=network5
+    print('Experiment(%s) : %s\nLB Score: %s' % (exp_key, msg['message'], '' if submission is None else submission.publicScore))
