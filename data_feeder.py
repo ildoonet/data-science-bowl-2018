@@ -29,7 +29,6 @@ if HyperParams.get().dataset_stage == 1:
     master_dir_train = '/data/public/rw/datasets/dsb2018/train'
     master_dir_train2 = None
     master_dir_test = '/data/public/rw/datasets/dsb2018/test'
-    SPLIT_IDX = 576
 
     # train/valid set k folds implementation
     IDX_LIST = list(next(os.walk(master_dir_train))[1])
@@ -51,8 +50,6 @@ else:
     master_dir_train = '/data/public/rw/datasets/dsb2018/train'
     master_dir_train2 = '/data/public/rw/datasets/dsb2018/test_stage1'
     master_dir_test = '/data/public/rw/datasets/dsb2018/stage2_test_final'
-    SPLIT_IDX_TRAIN = 572
-    SPLIT_IDX_VALID = 51
 
     # train/valid set k folds implementation
     IDX_LIST = list(next(os.walk(master_dir_train))[1])
@@ -68,12 +65,12 @@ else:
         assert len(VALID_IDX_LIST) == 98 + 14, len(VALID_IDX_LIST)
         assert len(TRAIN_IDX_LIST) == 572 + 51, len(TRAIN_IDX_LIST)
     else:
-        # to test all images
-        VALID_IDX_LIST = IDX_LIST + IDX_LIST2
+        # to test all test images in stage1
+        VALID_IDX_LIST = IDX_LIST2
         TRAIN_IDX_LIST = []
-        assert len(VALID_IDX_LIST) == 670 + 66, len(VALID_IDX_LIST)
+        assert len(VALID_IDX_LIST) == 65, len(VALID_IDX_LIST)
         assert len(TRAIN_IDX_LIST) == 0, len(TRAIN_IDX_LIST)
-
+TEST_IDX_LIST = list(next(os.walk(master_dir_test))[1])
 
 # extra1 ref : https://www.kaggle.com/voglinio/external-h-e-data-with-mask-annotations/notebook
 # extra2 ref : https://www.kaggle.com/branislav1991/converting-tnbc-external-data-to-dsb2018-format/
@@ -86,9 +83,12 @@ class CellImageData:
         self.target_id = target_id
 
         # read
-        target_dir = os.path.join(path, target_id)
-
-        img_path = os.path.join(target_dir, 'images', target_id + '.' + ext)
+        if '/' in target_id:
+            target_dir = ''
+            img_path = target_id
+        else:
+            target_dir = os.path.join(path, target_id)
+            img_path = os.path.join(target_dir, 'images', target_id + '.' + ext)
 
         for _ in range(10):
             self.img = cv2.imread(img_path, cv2.IMREAD_COLOR)
@@ -235,7 +235,7 @@ class CellImageDataManagerTrain(CellImageDataManager):
     LIST_ORIG = TRAIN_IDX_LIST
     LIST_EXT1 = list(next(os.walk(extra1_dir))[1])[:-9]
     LIST_EXT2 = list(next(os.walk(extra2_dir))[1])[:-5]
-    LIST = LIST_ORIG + LIST_EXT1 + LIST_EXT2
+    LIST = LIST_ORIG + LIST_EXT1 # + LIST_EXT2
 
     def __init__(self):
         super().__init__(
@@ -247,7 +247,7 @@ class CellImageDataManagerTrain(CellImageDataManager):
 
 
 class CellImageDataManagerValid(CellImageDataManager):
-    LIST_ORIG = [x for i, x in enumerate(next(os.walk(master_dir_train))[1]) if i in VALID_IDX_LIST]
+    LIST_ORIG = VALID_IDX_LIST
     LIST_EXT1 = list(next(os.walk(extra1_dir))[1])[-9:]
     LIST_EXT2 = list(next(os.walk(extra2_dir))[1])[-5:]
     LIST = LIST_EXT2 + LIST_EXT1 + LIST_ORIG
@@ -262,7 +262,7 @@ class CellImageDataManagerValid(CellImageDataManager):
 
 
 class CellImageDataManagerTest(CellImageDataManager):
-    LIST = list(next(os.walk(master_dir_test))[1])
+    LIST = TEST_IDX_LIST
 
     def __init__(self):
         super().__init__(

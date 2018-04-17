@@ -43,19 +43,26 @@ class HyperParams:
         self.net_bn_decay = 0.9
         self.net_bn_epsilon = 0.001
         self.net_dropout_keep = 0.9
-        self.net_init_stddev = 0.01
 
         self.unet_base_feature = 32
         self.unet_step_size = 4
 
+        # arthur's choice
+        # self.net_init_stddev = 0.03
+        # self.pre_erosion_iter = 1
+        # self.post_dilation_iter = 1
+
+        # default choice
+        self.net_init_stddev = 0.01
         self.pre_erosion_iter = 1
         self.post_dilation_iter = 2
+
+        self.post_voting_th = 5     # TODO
         self.post_fill_holes = False
         self.post_filter_th = 0.0
-        self.post_voting_th = 4
         self.post_cutoff_max_th = 0.9
         self.post_cutoff_avg_th = 0.0
-        self.test_aug_nms_iou = 0.5
+        self.test_aug_nms_iou = 0.3
         self.test_aug_scale_max = 2.0
         self.test_aug_scale_min = 0.75
         self.test_aug_scale_t = 80.0

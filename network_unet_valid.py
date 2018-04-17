@@ -143,7 +143,7 @@ class NetworkUnetValid(NetworkBasic):
         ds_train = MapDataComponent(ds_train, lambda x: resize_shortedge_if_small(x, self.img_size))
         # ds_train = MapDataComponent(ds_train, lambda x: pad_if_small(x, self.img_size)) # preseve cell's size
         ds_train = MapDataComponent(ds_train, lambda x: random_crop(x, self.img_size, self.img_size, padding=self.pad_size))
-        ds_train = MapDataComponent(ds_train, random_add_thick_area)
+        # ds_train = MapDataComponent(ds_train, random_add_thick_area)      # TODO : worth?
         ds_train = MapDataComponent(ds_train, random_flip_lr)
         ds_train = MapDataComponent(ds_train, random_flip_ud)
         # ds_train = MapDataComponent(ds_train, data_to_elastic_transform_wrapper)

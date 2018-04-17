@@ -19,7 +19,7 @@ class NetworkDeepLabV3p(Network):
     def __init__(self, batchsize):
         super().__init__()
 
-        self.img_size = 224     # TODO : 513?
+        self.img_size = 513     # TODO : 513?
         self.atrous_rates = [6, 12, 18]
         self.output_stride = 16
         self.batchsize = batchsize
@@ -45,7 +45,7 @@ class NetworkDeepLabV3p(Network):
             self.input_batch,
             model_options=model_options,
             image_pyramid=None,     # [0.5, 0.75, 1.0, 1.25, 1.5]
-            weight_decay=0.00004,
+            weight_decay=0.0004,
             is_training=self.is_training,
             fine_tune_batch_norm=True
         )
@@ -60,7 +60,7 @@ class NetworkDeepLabV3p(Network):
             scope='weighted_celoss'
         )
         self.loss = tf.check_numerics(loss, 'celoss_chk')
-        self.loss_opt = self.loss + tf.add_n(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES), name='regterm')
+        self.loss_opt = self.loss + tf.add_n(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES), name='regterm') # TODO : need l2 reg?
 
         return self.output
 
@@ -105,7 +105,7 @@ class NetworkDeepLabV3p(Network):
 
         return ds_train, ds_valid, ds_valid2, ds_test
 
-    def inference(self, tf_sess, image):
+    def inference(self, tf_sess, image, cutoff_instance_max=0.9, cutoff_instance_avg=0.0):
         # TODO : Mirror Padding?
         cascades, windows = Network.sliding_window(image, self.img_size, 0.5)
 
@@ -132,7 +132,6 @@ class NetworkDeepLabV3p(Network):
         instances, scores = Network.parse_merged_output(
             merged_output,
             cutoff=0.5,
-            use_separator=False,
             cutoff_instance_max=0.9,
             cutoff_instance_avg=0.0
         )

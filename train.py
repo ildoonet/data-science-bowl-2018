@@ -1,7 +1,6 @@
 import logging
 
 import os
-from concurrent.futures import ProcessPoolExecutor
 from multiprocessing.pool import Pool
 from itertools import compress
 
@@ -17,10 +16,12 @@ import tensorflow as tf
 from tqdm import tqdm
 
 from checkmate.checkmate import BestCheckpointSaver, get_best_checkpoint
-from commons import chunker
-from data_augmentation import get_max_size_of_masks, mask_size_normalize, center_crop, get_size_of_mask
+from commons import chunker, ensemble_models
+from data_augmentation import get_max_size_of_masks, mask_size_normalize, center_crop, get_size_of_mask, \
+    get_rect_of_mask
 from data_feeder import batch_to_multi_masks, CellImageData, master_dir_test, master_dir_train, \
-    CellImageDataManagerValid, CellImageDataManagerTrain, CellImageDataManagerTest, extra1_dir, extra2_dir
+    CellImageDataManagerValid, CellImageDataManagerTrain, CellImageDataManagerTest, extra1_dir, extra2_dir, \
+    master_dir_train2, IDX_LIST2
 from hyperparams import HyperParams
 from network import Network
 from network_basic import NetworkBasic
@@ -286,8 +287,12 @@ class Trainer:
         # show sample in test set
         logger.info('saving...')
         if save_result:
-            for single_id in tqdm(CellImageDataManagerTest.LIST, desc='test set evaluation'):
-                result = self.single_id(None, None, single_id, set_type='test', show=False, verbose=False)
+            for i, single_id in tqdm(enumerate(CellImageDataManagerTest.LIST), total=len(CellImageDataManagerTest.LIST)):    # TODO
+                try:
+                    result = self.single_id(None, None, single_id, 'test', False, False)
+                except Exception as e:
+                    logger.warning('single_id=%s err=%s' % (single_id, str(e)))
+                    continue
                 image = result['image']
                 instances = result['instances']
                 img_h, img_w = image.shape[:2]
@@ -299,6 +304,12 @@ class Trainer:
                 kaggle_submit.save_image(single_id, img_vis)
                 kaggle_submit.test_instances[single_id] = (instances, result['instance_scores'])
                 kaggle_submit.add_result(single_id, instances)
+                # for single_id in tqdm(CellImageDataManagerTest.LIST[1120:], desc='test set evaluation'):
+                #     result = self.single_id(None, None, single_id, set_type='test', show=False, verbose=False)
+
+                # temporal saving
+                if i % 500 == 0:
+                    kaggle_submit.save()
             kaggle_submit.save()
         logger.info('done. epoch=%d best_loss_val=%.4f best_mIOU=%.4f name= %s' % (m_epoch, best_loss_val, best_miou_val, name))
         return best_miou_val, name
@@ -334,6 +345,8 @@ class Trainer:
             d = CellImageData(single_id, extra2_dir, ext='png')
             # generally, TCGAs have lots of instances -> slow matching performance
             d = center_crop(d, 224, 224, padding=0)
+        elif single_id in IDX_LIST2:
+            d = CellImageData(single_id, master_dir_train2, ext='png')
         else:
             d = CellImageData(single_id, (master_dir_train if set_type == 'train' else master_dir_test))
         return d
@@ -353,8 +366,7 @@ class Trainer:
         d = self._get_cell_data(single_id, set_type)
         h, w = d.img.shape[:2]
         shortedge = min(h, w)
-        if verbose:
-            logger.info('%s image size=(%d x %d)' % (single_id, w, h))
+        logger.debug('%s image size=(%d x %d)' % (single_id, w, h))
 
         watch = StopWatch()
         logger.debug('preprocess+')
@@ -369,7 +381,7 @@ class Trainer:
         cutoff_instance_avg = HyperParams.get().post_cutoff_avg_th
 
         watch.start()
-        logger.debug('inference at default scale+')
+        logger.debug('inference at default scale+ %dx%d' % (w, h))
         inference_result = self.network.inference(self.sess, image, cutoff_instance_max=cutoff_instance_max, cutoff_instance_avg=cutoff_instance_avg)
         instances_pre, scores_pre = inference_result['instances'], inference_result['scores']
         instances_pre = Network.resize_instances(instances_pre, target_size=(h, w))
@@ -416,6 +428,9 @@ class Trainer:
         # resize_target = 2.0 / (1.0 + math.exp(-1.5*(resize_target - 1.0)))
         # resize_target = max(0.5, resize_target)
         resize_target = max(228.0 / shortedge, resize_target)
+        # if resize_target > 1.0 and min(w, h) > 1000:
+        #     logger.debug('too large image, no resize')
+        #     resize_target = 0.8
         logger.debug('resize_target=%.4f' % resize_target)
 
         instances_rescale, scores_rescale = inference_with_scale(image, resize_target)
@@ -440,11 +455,14 @@ class Trainer:
 
         watch.start()
         logger.debug('voting+ size=%d' % len(total_instances))
+
         # TODO : Voting?
         voting_th = HyperParams.get().post_voting_th
-        with ProcessPoolExecutor(max_workers=None) as executor:
-            voted = executor.map(filter_by_voting, [(x, total_instances, voting_th) for x in total_instances], chunksize=64)
-            voted = list(voted)
+        rects = [get_rect_of_mask(a) for a in total_instances]
+        voted = []
+        for i, x in enumerate(total_instances):
+            voted.append(filter_by_voting((x, total_instances, voting_th, 0.3, rects[i], rects)))
+
         total_instances = list(compress(total_instances, voted))
         total_scores = list(compress(total_scores, voted))
         total_from_set = list(compress(total_from_set, voted))
@@ -471,12 +489,12 @@ class Trainer:
         instances, scores = Network.remove_overlaps(instances, scores)
 
         # TODO : Filter by score?
-        logger.debug('filter by score+')
-        score_filter_th = HyperParams.get().post_filter_th
-        if score_filter_th > 0.0:
-            logger.debug('filter_by_score=%.3f' % score_filter_th)
-            instances = [i for i, s in zip(instances, scores) if s > score_filter_th]
-            scores = [s for i, s in zip(instances, scores) if s > score_filter_th]
+        # logger.debug('filter by score+')
+        # score_filter_th = HyperParams.get().post_filter_th
+        # if score_filter_th > 0.0:
+        #     logger.debug('filter_by_score=%.3f' % score_filter_th)
+        #     instances = [i for i, s in zip(instances, scores) if s > score_filter_th]
+        #     scores = [s for i, s in zip(instances, scores) if s > score_filter_th]
 
         logger.debug('finishing+')
         image = cv2.resize(image, (w, h), interpolation=cv2.INTER_AREA)
@@ -526,33 +544,9 @@ class Trainer:
             }
 
     def _load_ensembles(self, model):
-        ensemble_models = {
-            'stage1_test': {
-                'rcnn': [
-                ],
-                'unet': [
-                    "/data/public/rw/kaggle-data-science-bowl/submissions/lb525_ensemble_s80px(0.5-2.0)xflip/submission_lb525.pkl"
-                ]
-            },
-            'stage1_unet': {
-                'rcnn': [
-                    "/data/public/rw/datasets/dsb2018/pickles/pickled_mask_info_full.pkl"
-                ],
-                'unet': [
-                    "/data/public/rw/kaggle-data-science-bowl/submissions/lb525_ensemble_s80px(0.5-2.0)xflip/submission_lb525.pkl",
-                    "/data/public/rw/kaggle-data-science-bowl/submissions/stage1_folds7/unetv1_fold1_thick_unet_lr=0.00010000_epoch=600_bs=16/submission.pkl",
-                    "/data/public/rw/kaggle-data-science-bowl/submissions/stage1_folds7/unetv1_fold2_thick_unet_lr=0.00010000_epoch=600_bs=16/submission.pkl",
-                    "/data/public/rw/kaggle-data-science-bowl/submissions/stage1_folds7/unetv1_fold3_thick_unet_lr=0.00010000_epoch=600_bs=16/submission.pkl",
-                    "/data/public/rw/kaggle-data-science-bowl/submissions/stage1_folds7/unetv1_fold4_thick_unet_lr=0.00010000_epoch=600_bs=16/submission.pkl",
-                    "/data/public/rw/kaggle-data-science-bowl/submissions/stage1_folds7/unetv1_fold5_thick_unet_lr=0.00010000_epoch=600_bs=16/submission.pkl",
-                    "/data/public/rw/kaggle-data-science-bowl/submissions/stage1_folds7/unetv1_fold6_thick_unet_lr=0.00010000_epoch=600_bs=16/submission.pkl",
-                    "/data/public/rw/kaggle-data-science-bowl/submissions/stage1_folds7/unetv1_fold7_thick_unet_lr=0.00010000_epoch=600_bs=16/submission.pkl",
-                ]
-            }
-        }
-
         if self.ensembles is not None:
             return
+        logger.info('load ensembles...')
         self.ensembles = {'rcnn': [], 'unet': []}
 
         models = ensemble_models[model]
@@ -569,12 +563,22 @@ class Trainer:
 
         logger.debug('_load_ensembles-')
 
-    def ensemble_models(self, model='stage1_unet', set_type='test', tag='default', **kwargs):
-        kaggle_submit = KaggleSubmission('ensemble_%s_%s' % (tag, model))
+    def ensemble_models(self, model='stage1_unet', set_type='test', tag='default', seg=None, **kwargs):
+        l = CellImageDataManagerTest.LIST
+        if seg is None:
+            start_idx = 0
+            end_idx = len(l)
+            kaggle_submit = KaggleSubmission('ensemble_%s_%s' % (tag, model))
+        else:
+            start_idx = 160 * int(seg)
+            end_idx = 160 * (int(seg) + 1)
+            kaggle_submit = KaggleSubmission('ensemble_%s_%s_(%d_%d)' % (tag, model, start_idx, end_idx))
+
+        self._load_ensembles(model)
 
         # show sample in test set
-        logger.info('testset...')
-        for single_id in tqdm(CellImageDataManagerTest.LIST, desc='test set evaluation'):
+        logger.info('testset... model=%s idx=%d-%d' % (model, start_idx, end_idx))
+        for single_id in tqdm(CellImageDataManagerTest.LIST[start_idx:end_idx], desc='test set evaluation'):
             result = self.ensemble_models_id(single_id, set_type=set_type, model=model, show=False, verbose=False)
             image = result['image']
             instances = result['instances']
@@ -601,18 +605,24 @@ class Trainer:
         rcnn_scores = []
 
         # TODO : RCNN Ensemble
+        rcnn_ensemble = False
         for idx, data in enumerate(self.ensembles['rcnn']):
             if set_type == 'train':
                 instances, scores = data['valid_instances'].get(single_id, (None, None))
+                rcnn_ensemble = True
             else:
                 # TODO
                 ls = data['test_instances'].get(single_id, None)
-                instances = [x[0] for x in ls]
-                scores = [x[1] for x in ls]
-                logger.debug('rcnn # instances = %d' % len(instances))
+                if ls is None:
+                    instances = scores = None
+                else:
+                    instances = [x[0] for x in ls]
+                    scores = [x[1] for x in ls]
+                    rcnn_ensemble = True
+                    logger.debug('rcnn # instances = %d' % len(instances))
 
             if instances is None:
-                logger.debug('Not found id=%s in UNet %d Model' % (single_id, idx + 1))
+                logger.warning('Not found id=%s in RCNN %d Model' % (single_id, idx + 1))
                 continue
 
             rcnn_instances.extend([instance[:d.img_h, :d.img_w] for instance in instances])
@@ -629,11 +639,16 @@ class Trainer:
                 instances, scores = data['test_instances'].get(single_id, (None, None))
 
             if instances is None:
-                logger.debug('Not found id=%s in UNet %d Model' % (single_id, idx + 1))
+                logger.warning('Not found id=%s in UNet %d Model' % (single_id, idx + 1))
                 continue
 
             total_instances.extend(instances)
             total_scores.extend(scores)
+
+            # if single_id in ['646f5e00a2db3add97fb80a83ef3c07edd1b17b1b0d47c2bd650cdcab9f322c0']:
+                  # take too long
+            #     logger.warning('no ensemble id=%s' % single_id)
+            #     break
 
         watch = StopWatch()
         watch.start()
@@ -641,16 +656,11 @@ class Trainer:
 
         # TODO : Voting?
         voting_th = HyperParams.get().ensemble_voting_th
-        voted = []
 
-        with ProcessPoolExecutor(max_workers=12) as executor:
-            try:
-                args = [(x, total_instances, voting_th) for x in total_instances]
-                result = executor.map(filter_by_voting, args, chunksize=64)
-                voted.extend(list(result))
-            except Exception as e:
-                logger.error('%s instances=%d err=%s' % (single_id, len(total_instances), str(e)))
-                sys.exit(-1)
+        rects = [get_rect_of_mask(a) for a in total_instances]
+        voted = []
+        for i, x in enumerate(total_instances):
+            voted.append(filter_by_voting((x, total_instances, voting_th, 0.3, rects[i], rects)))
 
         total_instances = list(compress(total_instances, voted))
         total_scores = list(compress(total_scores, voted))
@@ -668,25 +678,21 @@ class Trainer:
         watch.reset()
 
         # high threshold if not exists in RCNN
-        voted = []
-        with ProcessPoolExecutor(max_workers=12) as executor:
-            try:
-                result = executor.map(filter_by_voting, [(x, rcnn_instances, 1, 0.3) for x in instances], chunksize=64)
-                voted.extend(list(result))
-            except Exception as e:
-                logger.error('%s instances=%d err_rcnn=%s' % (single_id, len(total_instances), str(e)))
-                sys.exit(-1)
+        if rcnn_ensemble:
+            voted = []
+            for i, x in enumerate(instances):
+                voted.append(filter_by_voting((x, rcnn_instances, 1, 0.3, None, None)))
 
-        new_instances = []
-        new_scores = []
-        for instance, score, v in zip(instances, scores, voted):
-            if v:
-                new_instances.append(instance)
-                new_scores.append(score)
-            elif score > HyperParams.get().ensemble_th_no_rcnn:
-                new_instances.append(instance)
-                new_scores.append(score)
-        instances, scores = new_instances, new_scores
+            new_instances = []
+            new_scores = []
+            for instance, score, v in zip(instances, scores, voted):
+                if v:
+                    new_instances.append(instance)
+                    new_scores.append(score)
+                elif score > HyperParams.get().ensemble_th_no_rcnn:
+                    new_instances.append(instance)
+                    new_scores.append(score)
+            instances, scores = new_instances, new_scores
 
         # nms with rcnn
         instances = instances + rcnn_instances
@@ -695,7 +701,7 @@ class Trainer:
         logger.debug('nms_rcnn+ size=%d' % len(instances))
         instances, scores = Network.nms(instances, scores, None, thresh=HyperParams.get().ensemble_nms_iou)
         watch.stop()
-        logger.debug('nms_rcnn elapsed=%.5f' % watch.get_elapsed())
+        logger.debug('nms_rcnn- size=%d elapsed=%.5f' % (len(instances), watch.get_elapsed()))
         watch.reset()
 
         # remove overlaps
@@ -708,27 +714,22 @@ class Trainer:
         instances2, scores2 = Network.remove_overlaps(instances2, scores)
 
         # remove deleted instances
+        logger.debug('remove deleted+ size=%d' % len(instances2))
         voted = []
-        with ProcessPoolExecutor(max_workers=12) as executor:
-            try:
-                result = executor.map(filter_by_voting, [(x, instances, 1, 0.75) for x in instances2], chunksize=64)
-                voted.extend(list(result))
-            except:
-                logger.error('%s instances=%d err2 ' % (single_id, len(total_instances)))
-                sys.exit(-1)
-
+        for x in instances2:
+            voted.append(filter_by_voting((x, instances, 1, 0.75, None, None)))
         instances = list(compress(instances2, voted))
         scores = list(compress(scores2, voted))
 
         # TODO : Filter by score?
-        logger.debug('filter by score+')
+        logger.debug('filter by score+ size=%d' % len(instances))
         score_filter_th = HyperParams.get().ensemble_score_th
         if score_filter_th > 0.0:
             logger.debug('filter_by_score=%.3f' % score_filter_th)
             instances = [i for i, s in zip(instances, scores) if s > score_filter_th]
             scores = [s for i, s in zip(instances, scores) if s > score_filter_th]
 
-        logger.debug('finishing+')
+        logger.debug('finishing+ size=%d' % len(instances))
         image = d.image(is_gray=False)
         score_desc = []
         labels = []
@@ -736,8 +737,7 @@ class Trainer:
             labels = list(d.multi_masks(transpose=False))
             tp, fp, fn = get_multiple_metric(thr_list, instances, labels)
 
-            if verbose:
-                logger.info('instances=%d, labels=%d' % (len(instances), len(labels)))
+            logger.debug('instances=%d, labels=%d' % (len(instances), len(labels)))
             for i, thr in enumerate(thr_list):
                 desc = 'score=%.3f, tp=%d, fp=%d, fn=%d --- iou %.2f' % (
                     (tp / (tp + fp + fn))[i],
@@ -746,17 +746,15 @@ class Trainer:
                     fn[i],
                     thr
                 )
-                if verbose:
-                    logger.info(desc)
+                logger.debug(desc)
                 score_desc.append(desc)
             score = np.mean(tp / (tp + fp + fn))
-            if verbose:
-                logger.info('score=%.3f, tp=%.1f, fp=%.1f, fn=%.1f --- mean' % (
-                    score,
-                    np.mean(tp),
-                    np.mean(fp),
-                    np.mean(fn)
-                ))
+            logger.debug('score=%.3f, tp=%.1f, fp=%.1f, fn=%.1f --- mean' % (
+                score,
+                np.mean(tp),
+                np.mean(fp),
+                np.mean(fn)
+            ))
         else:
             score = 0.0
 
@@ -786,14 +784,23 @@ def do_get_multiple_metric(args):
 
 
 def filter_by_voting(args):
-    if len(args) == 3:
-        x, total_list, voting_th = args
-        iou_th = 0.3
-    else:
-        x, total_list, voting_th, iou_th = args
-    if np.sum(np.array([get_iou(x, x2) for x2 in total_list]) > iou_th) >= voting_th:
-        return True
-    return False
+    x, total_list, voting_th, iou_th, rect, rects = args
+
+    voted = []
+    for i2, x2 in enumerate(total_list):
+        if rect is not None and rects is not None:
+            rmin1, rmax1, cmin1, cmax1 = rect
+            rmin2, rmax2, cmin2, cmax2 = rects[i2]
+
+            overlap_r = (rmin1 <= rmin2 <= rmax1 or rmin1 <= rmax2 <= rmax1) or (rmin2 <= rmin1 <= rmax2 or rmin2 <= rmax1 <= rmax2)
+            overlap_c = (cmin1 <= cmin2 <= cmax1 or cmin1 <= cmax2 <= cmax1) or (cmin2 <= cmin1 <= cmax2 or cmin2 <= cmax1 <= cmax2)
+
+            if not (overlap_r and overlap_c):
+                voted.append(0)
+                continue
+        voted.append(1 if get_iou(x, x2) > iou_th else 0)
+
+    return sum(voted) >= voting_th
 
 
 if __name__ == '__main__':
