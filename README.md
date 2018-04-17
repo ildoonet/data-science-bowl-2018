@@ -1,20 +1,6 @@
-# Data Science Bawl 2018
+# U-Net based model for Data Science Bowl 2018
 
-## Run
-    # example
-    CUDA_VISIBLE_DEVICES=0 python train.py run --model=basic
+41th on Data Science Bowl 2018 in Kaggle.
 
+Implementations of U-Net based models and ensemble methods.
 
-## Architectures
-
-### Segmentation
-
-- network_basic
-  - FCN. 4 convolution + 1 convolution, multiple feature concatenation.
-  - HyperParameters
-    - lr=0.01
-    - batchsize=32
-  - [Results](https://github.kakaocorp.com/kakaobrain/data-science-bowl-2018/wiki/Basic-Convolutional-Model)
-  - LB : 0.195 @ Validation Loss=0.0908, decay_steps=200, decay_rate=0.33 (basic_lr=0.010_epoch=20_bs=32_180225T1155)
-  - LB : 0.221 @ Validation loss=0.0613, decay_steps=300, decay_rate=0.33 (basic_lr=0.010_epoch=30_bs=32_180225T1148)
-  - LB : 0.259 @ Validation Loss=0.0757, decay_steps=300, decay_rate=0.33 (no_separator_basic_lr=0.000_epoch=30_bs=32)
